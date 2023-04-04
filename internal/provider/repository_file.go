@@ -22,7 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	helperresource "github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
 
 type RepositoryFileResourceModel struct {
@@ -143,26 +143,26 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 			Email: data.AuthorEmail.ValueString(),
 		},
 	}
-	err := helperresource.RetryContext(ctx, createTimeout, func() *helperresource.RetryError {
+	err := retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
 		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		path := filepath.Join(client.Path(), data.Path.ValueString())
 		_, err = os.Stat(path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		if err == nil && !data.OverrideOnCreate.ValueBool() {
-			return helperresource.NonRetryableError(fmt.Errorf("cannot override existing file"))
+			return retry.NonRetryableError(fmt.Errorf("cannot override existing file"))
 		}
 		_, err = client.Commit(commit, repository.WithFiles(files))
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		err = client.Push(ctx)
 		if err != nil {
-			return helperresource.RetryableError(err)
+			return retry.RetryableError(err)
 		}
 		return nil
 	})
@@ -231,18 +231,18 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 			Email: data.AuthorEmail.ValueString(),
 		},
 	}
-	err := helperresource.RetryContext(ctx, updateTimeout, func() *helperresource.RetryError {
+	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
 		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		_, err = client.Commit(commit, repository.WithFiles(files))
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		err = client.Push(ctx)
 		if err != nil {
-			return helperresource.RetryableError(err)
+			return retry.RetryableError(err)
 		}
 		return nil
 	})
@@ -276,10 +276,10 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 			Email: data.AuthorEmail.ValueString(),
 		},
 	}
-	err := helperresource.RetryContext(ctx, deleteTimeout, func() *helperresource.RetryError {
+	err := retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
 		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		path := filepath.Join(client.Path(), data.Path.ValueString())
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -288,15 +288,15 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 		}
 		err = os.Remove(path)
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		_, err = client.Commit(commit)
 		if err != nil {
-			return helperresource.NonRetryableError(err)
+			return retry.NonRetryableError(err)
 		}
 		err = client.Push(ctx)
 		if err != nil {
-			return helperresource.RetryableError(err)
+			return retry.RetryableError(err)
 		}
 		return nil
 	})
