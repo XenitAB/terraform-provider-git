@@ -8,7 +8,7 @@ ACCTEST_TIMEOUT?=10m
 all: test testacc build
 
 tidy:
-	rm -f go.sum; go mod tidy -compat=1.18
+	rm -f go.sum; go mod tidy -compat=1.20
 
 fmt:
 	go fmt ./...
@@ -23,11 +23,7 @@ testacc: tidy fmt vet
 	TF_ACC=1 go test ./... -v -count $(TEST_COUNT) -parallel $(ACCTEST_PARALLELISM) -timeout $(ACCTEST_TIMEOUT)
 
 build:
-	CGO_ENABLED=0 go build -o ./bin/git main.go
-
-install: build
-	mkdir -p ~/.terraform.d/plugins/registry.terraform.io/xenitab/git/0.0.0-dev/$${GOOS}_$${GOARCH}
-	cp ./bin/git ~/.terraform.d/plugins/registry.terraform.io/xenitab/git/0.0.0-dev/$${GOOS}_$${GOARCH}/terraform-provider-git
+	CGO_ENABLED=0 go build -o ./bin/terraform-provider-git main.go
 
 .PHONY: docs
 docs: tools
@@ -38,14 +34,7 @@ tools:
 
 .SILENT:
 lint:
-	set -e
-	echo lint: Start
-	EXAMPLES=$$(find examples -mindepth 1 -maxdepth 1 -type d)
-	DELETE=examples/data-sources
-	echo $${array[@]/$$DELETE}
-	EXAMPLES=( "$${EXAMPLES[@]/$$DELETE}" )
-	for EXAMPLE in $${EXAMPLES}; do
-		echo $$EXAMPLE
-		tflint -c examples/.tflint.hcl $${EXAMPLE}
-	done
-	echo lint: Success
+	tflint --recursive --disable-rule=terraform_required_providers --disable-rule terraform_required_version --disable-rule=terraform_unused_declarations
+
+terraformrc:
+	cat .terraformrc.tmpl | envsubst > .terraformrc
