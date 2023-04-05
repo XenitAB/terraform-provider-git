@@ -26,7 +26,7 @@ import (
 )
 
 type RepositoryFileResourceModel struct {
-	Id               types.String   `tfsdk:"id"`
+	ID               types.String   `tfsdk:"id"`
 	Branch           types.String   `tfsdk:"branch"`
 	Path             types.String   `tfsdk:"path"`
 	Content          types.String   `tfsdk:"content"`
@@ -170,8 +170,8 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 		resp.Diagnostics.AddError("Git File Create Error", err.Error())
 		return
 	}
+	data.ID = data.Path
 
-	data.Id = types.StringValue(fmt.Sprintf("%s-%s", data.Branch.ValueString(), data.Path.ValueString()))
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -195,12 +195,18 @@ func (r *RepositoryFileResource) Read(ctx context.Context, req resource.ReadRequ
 		resp.Diagnostics.AddError("Git Client Error", err.Error())
 		return
 	}
-	path := filepath.Join(client.Path(), data.Path.ValueString())
-	b, err := os.ReadFile(path)
+	absPath := filepath.Join(client.Path(), data.ID.ValueString())
+	b, err := os.ReadFile(absPath)
+	if err != nil && errors.Is(os.ErrNotExist, err) {
+		diags = resp.State.SetAttribute(ctx, path.Root("id"), "")
+		resp.Diagnostics.Append(diags...)
+		return
+	}
 	if err != nil {
 		resp.Diagnostics.AddError("File Read Error", err.Error())
 		return
 	}
+	data.Path = data.ID
 	data.Content = types.StringValue(string(b))
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
@@ -307,5 +313,12 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 }
 
 func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+	b, p, ok := strings.Cut(req.ID, ":")
+	if !ok {
+		resp.Diagnostics.AddError("Invalid ID", "Expected id to have format branch:path")
+	}
+	diags := resp.State.SetAttribute(ctx, path.Root("branch"), b)
+	resp.Diagnostics.Append(diags...)
+	diags = resp.State.SetAttribute(ctx, path.Root("id"), p)
+	resp.Diagnostics.Append(diags...)
 }
