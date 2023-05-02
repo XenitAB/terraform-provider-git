@@ -197,7 +197,7 @@ func (r *RepositoryFileResource) Read(ctx context.Context, req resource.ReadRequ
 	}
 	absPath := filepath.Join(client.Path(), data.ID.ValueString())
 	b, err := os.ReadFile(absPath)
-	if err != nil && errors.Is(os.ErrNotExist, err) {
+	if err != nil && errors.Is(err, os.ErrNotExist) {
 		diags = resp.State.SetAttribute(ctx, path.Root("id"), "")
 		resp.Diagnostics.Append(diags...)
 		return
