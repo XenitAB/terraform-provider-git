@@ -133,9 +133,6 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	files := map[string]io.Reader{
-		data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
-	}
 	commit := git.Commit{
 		Message: data.Message.ValueString(),
 		Author: git.Signature{
@@ -144,6 +141,9 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 		},
 	}
 	err := retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
+		files := map[string]io.Reader{
+			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
+		}
 		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
 		if err != nil {
 			return retry.NonRetryableError(err)
@@ -160,7 +160,7 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
-		err = client.Push(ctx)
+		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
 		}
@@ -227,9 +227,6 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
-	files := map[string]io.Reader{
-		data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
-	}
 	commit := git.Commit{
 		Message: data.Message.ValueString(),
 		Author: git.Signature{
@@ -238,6 +235,9 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 		},
 	}
 	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
+		files := map[string]io.Reader{
+			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
+		}
 		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
 		if err != nil {
 			return retry.NonRetryableError(err)
@@ -246,7 +246,7 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
-		err = client.Push(ctx)
+		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
 		}
@@ -300,7 +300,7 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
-		err = client.Push(ctx)
+		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
 		}
