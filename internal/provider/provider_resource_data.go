@@ -39,7 +39,7 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context, branch string
 	if err != nil {
 		return nil, fmt.Errorf("could not create git client: %w", err)
 	}
-	_, err = client.Clone(ctx, prd.url, repository.CloneOptions{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
+	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
 	if err != nil {
 		return nil, err
 	}
