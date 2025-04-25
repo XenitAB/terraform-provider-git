@@ -1,8 +1,6 @@
 module github.com/xenitab/terraform-provider-git
 
-go 1.22.0
-
-toolchain go1.23.5
+go 1.23.0
 
 require (
 	github.com/fluxcd/flux2 v0.41.2
