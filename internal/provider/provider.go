@@ -24,9 +24,10 @@ type Http struct {
 }
 
 type GitProviderModel struct {
-	Url  types.String `tfsdk:"url"`
-	Ssh  *Ssh         `tfsdk:"ssh"`
-	Http *Http        `tfsdk:"http"`
+	Url           types.String `tfsdk:"url"`
+	Ssh           *Ssh         `tfsdk:"ssh"`
+	Http          *Http        `tfsdk:"http"`
+	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
 }
 
 var _ provider.Provider = &GitProvider{}
@@ -87,6 +88,10 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				},
 				Optional: true,
 			},
+			"ignore_updates": schema.BoolAttribute{
+				Optional:    true,
+				Description: "If true, any updates to resources of type git_repository_file will be ignored.",
+			},
 		},
 	}
 }
@@ -98,9 +103,10 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		return
 	}
 	resp.ResourceData = &ProviderResourceData{
-		url:  data.Url.ValueString(),
-		ssh:  data.Ssh,
-		http: data.Http,
+		url:            data.Url.ValueString(),
+		ssh:            data.Ssh,
+		http:           data.Http,
+		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
 }
 

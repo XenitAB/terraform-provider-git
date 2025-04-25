@@ -13,9 +13,14 @@ import (
 )
 
 type ProviderResourceData struct {
-	url  string
-	ssh  *Ssh
-	http *Http
+	url            string
+	ssh            *Ssh
+	http           *Http
+	ignore_updates bool
+}
+
+func (prd *ProviderResourceData) IgnoreUpdates(ctx context.Context) bool {
+	return prd.ignore_updates
 }
 
 func (prd *ProviderResourceData) GetGitClient(ctx context.Context, branch string) (*gogit.Client, error) {
