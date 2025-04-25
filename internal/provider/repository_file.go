@@ -186,14 +186,17 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 			Email: data.AuthorEmail.ValueString(),
 		},
 	}
+
 	err := retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
 		files := map[string]io.Reader{
 			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
 		}
+
 		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		path := filepath.Join(client.Path(), data.Path.ValueString())
 		_, err = os.Stat(path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -202,10 +205,12 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 		if err == nil && !data.OverrideOnCreate.ValueBool() {
 			return retry.NonRetryableError(fmt.Errorf("cannot override existing file"))
 		}
+
 		_, err = client.Commit(commit, repository.WithFiles(files))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
@@ -229,11 +234,12 @@ func (r *RepositoryFileResource) Read(ctx context.Context, req resource.ReadRequ
 	}
 
 	if r.prd.IgnoreUpdates(ctx) {
-		tflog.Debug(ctx, "Provider is configured to ignore updates and git file will not be read.", map[string]interface{}{})
+		tflog.Debug(ctx, "Provider is configured to ignore updates. The git file will not be read.", map[string]interface{}{})
 		req.Private.SetKey(ctx, "IgnoreUpdates", []byte("true"))
 		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 		return
 	}
+	req.Private.SetKey(ctx, "IgnoreUpdates", []byte("false"))
 
 	readTimeout, diags := data.Timeouts.Read(ctx, 10*time.Minute)
 	resp.Diagnostics.Append(diags...)
@@ -262,6 +268,18 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
+	client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Git Client Error", err.Error())
+		return
+	}
+
+	path := filepath.Join(client.Path(), data.Path.ValueString())
+	if err, exists := FileExists(path); !exists {
+		resp.Diagnostics.AddError("File Doesn't Exist", err.Error())
+		return
+	}
+
 	commit := git.Commit{
 		Message: data.Message.ValueString(),
 		Author: git.Signature{
@@ -269,18 +287,17 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 			Email: data.AuthorEmail.ValueString(),
 		},
 	}
-	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
+
+	err = retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
 		files := map[string]io.Reader{
 			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
 		}
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
-		if err != nil {
-			return retry.NonRetryableError(err)
-		}
+
 		_, err = client.Commit(commit, repository.WithFiles(files))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
@@ -310,6 +327,18 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 	ctx, cancel := context.WithTimeout(ctx, deleteTimeout)
 	defer cancel()
 
+	client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Git Client Error", err.Error())
+		return
+	}
+
+	path := filepath.Join(client.Path(), data.Path.ValueString())
+	if _, exists := FileExists(path); !exists {
+		tflog.Debug(ctx, "Skipping file removal as the file doesn't exist", map[string]interface{}{"path": path})
+		return
+	}
+
 	commit := git.Commit{
 		Message: data.Message.ValueString(),
 		Author: git.Signature{
@@ -317,24 +346,18 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 			Email: data.AuthorEmail.ValueString(),
 		},
 	}
-	err := retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
-		if err != nil {
-			return retry.NonRetryableError(err)
-		}
-		path := filepath.Join(client.Path(), data.Path.ValueString())
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			tflog.Debug(ctx, "Skipping file removal as the file does not exist", map[string]interface{}{"path": path})
-			return nil
-		}
+
+	err = retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
 		err = os.Remove(path)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		_, err = client.Commit(commit)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
@@ -397,12 +420,13 @@ func (r *RepositoryFileResource) ReadFile(ctx context.Context, data *RepositoryF
 		return
 	}
 
-	absPath := filepath.Join(client.Path(), data.ID.ValueString())
-	b, err := os.ReadFile(absPath)
-	if err != nil && errors.Is(err, os.ErrNotExist) {
+	path := filepath.Join(client.Path(), data.ID.ValueString())
+	if err, exists := FileExists(path); !exists {
 		diags.AddError("File Doesn't Exist", err.Error())
 		return
 	}
+
+	b, err := os.ReadFile(path)
 	if err != nil {
 		diags.AddError("Error Reading File", err.Error())
 		return
@@ -410,4 +434,15 @@ func (r *RepositoryFileResource) ReadFile(ctx context.Context, data *RepositoryF
 
 	data.Path = data.ID
 	data.Content = types.StringValue(string(b))
+}
+
+func FileExists(path string) (error, bool) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return err, false
+	}
+	if info.IsDir() {
+		return errors.New("file is a directory"), false
+	}
+	return nil, true
 }
