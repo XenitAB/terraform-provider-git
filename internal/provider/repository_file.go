@@ -107,8 +107,6 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 			},
 			"branch": schema.StringAttribute{
 				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("main"),
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -192,7 +190,12 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
 		}
 
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+		branch := r.prd.branch
+		if branch == "" {
+			branch = data.Branch.ValueString()
+		}
+
+		client, err := r.prd.GetGitClient(ctx, branch)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -279,7 +282,12 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	}
 
 	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+		branch := r.prd.branch
+		if branch == "" {
+			branch = data.Branch.ValueString()
+		}
+
+		client, err := r.prd.GetGitClient(ctx, branch)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -337,7 +345,12 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 	}
 
 	err := retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+		branch := r.prd.branch
+		if branch == "" {
+			branch = data.Branch.ValueString()
+		}
+
+		client, err := r.prd.GetGitClient(ctx, branch)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}

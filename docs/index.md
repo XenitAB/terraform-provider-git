@@ -21,6 +21,7 @@ description: |-
 
 ### Optional
 
+- `branch` (String) Branchname to use for commits.
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.
 - `ssh` (Attributes) (see [below for nested schema](#nestedatt--ssh))

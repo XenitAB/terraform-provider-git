@@ -25,6 +25,7 @@ type Http struct {
 
 type GitProviderModel struct {
 	Url           types.String `tfsdk:"url"`
+	Branch        types.String `tfsdk:"branch"`
 	Ssh           *Ssh         `tfsdk:"ssh"`
 	Http          *Http        `tfsdk:"http"`
 	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
@@ -46,6 +47,10 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 		Attributes: map[string]schema.Attribute{
 			"url": schema.StringAttribute{
 				Required: true,
+			},
+			"branch": schema.StringAttribute{
+				Description: "Branchname to use for commits.",
+				Optional:    true,
 			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
@@ -104,6 +109,7 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 	resp.ResourceData = &ProviderResourceData{
 		url:            data.Url.ValueString(),
+		branch:         data.Branch.ValueString(),
 		ssh:            data.Ssh,
 		http:           data.Http,
 		ignore_updates: data.IgnoreUpdates.ValueBool(),
