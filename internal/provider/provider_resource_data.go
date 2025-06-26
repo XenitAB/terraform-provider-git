@@ -14,6 +14,7 @@ import (
 
 type ProviderResourceData struct {
 	url            string
+	branch         string
 	ssh            *Ssh
 	http           *Http
 	ignore_updates bool
@@ -21,6 +22,10 @@ type ProviderResourceData struct {
 
 func (prd *ProviderResourceData) IgnoreUpdates(ctx context.Context) bool {
 	return prd.ignore_updates
+}
+
+func (prd *ProviderResourceData) Branch(ctx context.Context) string {
+	return prd.branch
 }
 
 func (prd *ProviderResourceData) GetGitClient(ctx context.Context, branch string) (*gogit.Client, error) {
@@ -44,11 +49,20 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context, branch string
 	if err != nil {
 		return nil, fmt.Errorf("could not create git client: %w", err)
 	}
-	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
+	// If the repository_file has a branch set, it should be used, otherwise we use the provider branch, if set
+	// and fall back to the old behaviour of using the "main" default branch. The branch must exist in the remote.
+	s := branch
+	if s == "" {
+		s = prd.branch
+	}
+	if s == "" {
+		s = "main"
+	}
+	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: s}})
 	if err != nil {
 		return nil, err
 	}
-	return client, nil
+	return client, err
 }
 
 func getAuthOpts(u *url.URL, h *Http, s *Ssh) (*git.AuthOptions, error) {
