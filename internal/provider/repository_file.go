@@ -19,7 +19,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
@@ -32,9 +31,6 @@ type RepositoryFileResourceModel struct {
 	Path             types.String   `tfsdk:"path"`
 	Content          types.String   `tfsdk:"content"`
 	OverrideOnCreate types.Bool     `tfsdk:"override_on_create"`
-	AuthorName       types.String   `tfsdk:"author_name"`
-	AuthorEmail      types.String   `tfsdk:"author_email"`
-	Message          types.String   `tfsdk:"message"`
 	Timeouts         timeouts.Value `tfsdk:"timeouts"`
 }
 
@@ -122,19 +118,6 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 				Default:       booldefault.StaticBool(false),
 				PlanModifiers: []planmodifier.Bool{},
 			},
-			"author_name": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("Terraform Provider Git"),
-			},
-			"author_email": schema.StringAttribute{
-				Optional: true,
-			},
-			"message": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("Write file with Terraform Provider Git."),
-			},
 			"timeouts": timeouts.AttributesAll(ctx),
 		},
 	}
@@ -171,10 +154,10 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 	defer cancel()
 
 	commit := git.Commit{
-		Message: data.Message.ValueString(),
+		Message: r.prd.Commits(ctx).Msg(),
 		Author: git.Signature{
-			Name:  data.AuthorName.ValueString(),
-			Email: data.AuthorEmail.ValueString(),
+			Name:  r.prd.Commits(ctx).Author(),
+			Email: r.prd.Commits(ctx).Email(),
 		},
 	}
 
@@ -262,10 +245,10 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	defer cancel()
 
 	commit := git.Commit{
-		Message: data.Message.ValueString(),
+		Message: r.prd.Commits(ctx).Msg(),
 		Author: git.Signature{
-			Name:  data.AuthorName.ValueString(),
-			Email: data.AuthorEmail.ValueString(),
+			Name:  r.prd.Commits(ctx).Author(),
+			Email: r.prd.Commits(ctx).Email(),
 		},
 	}
 
@@ -320,10 +303,10 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 	defer cancel()
 
 	commit := git.Commit{
-		Message: data.Message.ValueString(),
+		Message: r.prd.Commits(ctx).Msg(),
 		Author: git.Signature{
-			Name:  data.AuthorName.ValueString(),
-			Email: data.AuthorEmail.ValueString(),
+			Name:  r.prd.Commits(ctx).Author(),
+			Email: r.prd.Commits(ctx).Email(),
 		},
 	}
 
@@ -371,8 +354,6 @@ func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.I
 	data := &RepositoryFileResourceModel{
 		ID:               basetypes.NewStringValue(p),
 		OverrideOnCreate: basetypes.NewBoolValue(true),
-		AuthorName:       basetypes.NewStringValue("Terraform Provider Git"),
-		Message:          basetypes.NewStringValue("Write file with Terraform Provider Git."),
 	}
 
 	importTimeout, diags := data.Timeouts.Read(ctx, 10*time.Minute)
@@ -395,10 +376,6 @@ func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.I
 	diags = resp.State.SetAttribute(ctx, path.Root("content"), data.Content.ValueString())
 	resp.Diagnostics.Append(diags...)
 	diags = resp.State.SetAttribute(ctx, path.Root("override_on_create"), data.OverrideOnCreate.ValueBool())
-	resp.Diagnostics.Append(diags...)
-	diags = resp.State.SetAttribute(ctx, path.Root("author_name"), data.AuthorName.ValueString())
-	resp.Diagnostics.Append(diags...)
-	diags = resp.State.SetAttribute(ctx, path.Root("message"), data.Message.ValueString())
 	resp.Diagnostics.Append(diags...)
 }
 
