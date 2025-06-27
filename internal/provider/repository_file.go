@@ -29,7 +29,6 @@ import (
 
 type RepositoryFileResourceModel struct {
 	ID               types.String   `tfsdk:"id"`
-	Branch           types.String   `tfsdk:"branch"`
 	Path             types.String   `tfsdk:"path"`
 	Content          types.String   `tfsdk:"content"`
 	OverrideOnCreate types.Bool     `tfsdk:"override_on_create"`
@@ -104,9 +103,6 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
-			},
-			"branch": schema.StringAttribute{
-				Optional: true,
 			},
 			"path": schema.StringAttribute{
 				Required: true,
@@ -187,12 +183,7 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
 		}
 
-		branch := r.prd.branch
-		if branch == "" {
-			branch = data.Branch.ValueString()
-		}
-
-		client, err := r.prd.GetGitClient(ctx, branch)
+		client, err := r.prd.GetGitClient(ctx)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -279,12 +270,7 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	}
 
 	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
-		branch := r.prd.branch
-		if branch == "" {
-			branch = data.Branch.ValueString()
-		}
-
-		client, err := r.prd.GetGitClient(ctx, branch)
+		client, err := r.prd.GetGitClient(ctx)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -342,12 +328,7 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 	}
 
 	err := retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
-		branch := r.prd.branch
-		if branch == "" {
-			branch = data.Branch.ValueString()
-		}
-
-		client, err := r.prd.GetGitClient(ctx, branch)
+		client, err := r.prd.GetGitClient(ctx)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -382,14 +363,13 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 }
 
 func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	b, p, ok := strings.Cut(req.ID, ":")
+	_, p, ok := strings.Cut(req.ID, ":")
 	if !ok {
 		resp.Diagnostics.AddError("Invalid ID", "Expected id to have format branch:path")
 	}
 
 	data := &RepositoryFileResourceModel{
 		ID:               basetypes.NewStringValue(p),
-		Branch:           basetypes.NewStringValue(b),
 		OverrideOnCreate: basetypes.NewBoolValue(true),
 		AuthorName:       basetypes.NewStringValue("Terraform Provider Git"),
 		Message:          basetypes.NewStringValue("Write file with Terraform Provider Git."),
@@ -408,8 +388,6 @@ func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.I
 		return
 	}
 
-	diags = resp.State.SetAttribute(ctx, path.Root("branch"), data.Branch.ValueString())
-	resp.Diagnostics.Append(diags...)
 	diags = resp.State.SetAttribute(ctx, path.Root("id"), data.ID.ValueString())
 	resp.Diagnostics.Append(diags...)
 	diags = resp.State.SetAttribute(ctx, path.Root("path"), data.Path.ValueString())
@@ -425,7 +403,7 @@ func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.I
 }
 
 func (r *RepositoryFileResource) ReadFile(ctx context.Context, data *RepositoryFileResourceModel, diags *diag.Diagnostics) {
-	client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+	client, err := r.prd.GetGitClient(ctx)
 	if err != nil {
 		diags.AddError("Git Client Error", err.Error())
 		return

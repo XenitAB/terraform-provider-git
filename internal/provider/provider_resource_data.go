@@ -28,7 +28,7 @@ func (prd *ProviderResourceData) Branch(ctx context.Context) string {
 	return prd.branch
 }
 
-func (prd *ProviderResourceData) GetGitClient(ctx context.Context, branch string) (*gogit.Client, error) {
+func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Client, error) {
 	u, err := url.Parse(prd.url)
 	if err != nil {
 		return nil, err
@@ -49,16 +49,11 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context, branch string
 	if err != nil {
 		return nil, fmt.Errorf("could not create git client: %w", err)
 	}
-	// If the repository_file has a branch set, it should be used, otherwise we use the provider branch, if set
-	// and fall back to the old behaviour of using the "main" default branch. The branch must exist in the remote.
-	s := branch
-	if s == "" {
-		s = prd.branch
+	branch := prd.branch
+	if branch == "" {
+		branch = "main"
 	}
-	if s == "" {
-		s = "main"
-	}
-	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: s}})
+	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
 	if err != nil {
 		return nil, err
 	}
