@@ -107,9 +107,6 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 			},
 			"branch": schema.StringAttribute{
 				Optional: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
 			},
 			"path": schema.StringAttribute{
 				Required: true,
