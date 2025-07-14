@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/fluxcd/flux2 v0.41.2
-	github.com/fluxcd/pkg/git v0.26.0
+	github.com/fluxcd/pkg/git v0.33.0
 	github.com/fluxcd/pkg/git/gogit v0.26.0
 	github.com/hashicorp/terraform-plugin-docs v0.21.0
 	github.com/hashicorp/terraform-plugin-framework v1.14.1
@@ -26,21 +26,21 @@ require (
 	github.com/Masterminds/semver/v3 v3.3.1 // indirect
 	github.com/Masterminds/sprig/v3 v3.3.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/ProtonMail/go-crypto v1.2.0 // indirect
+	github.com/ProtonMail/go-crypto v1.3.0 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/armon/go-radix v1.0.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bgentry/speakeasy v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.8.1 // indirect
-	github.com/bradleyfalzon/ghinstallation/v2 v2.15.0 // indirect
+	github.com/bradleyfalzon/ghinstallation/v2 v2.16.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fluxcd/pkg/auth v0.9.0 // indirect
-	github.com/fluxcd/pkg/cache v0.7.0 // indirect
-	github.com/fluxcd/pkg/ssh v0.17.0 // indirect
+	github.com/fluxcd/pkg/cache v0.10.0 // indirect
+	github.com/fluxcd/pkg/ssh v0.20.0 // indirect
 	github.com/fluxcd/pkg/version v0.6.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
@@ -52,7 +52,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/go-github/v71 v71.0.0 // indirect
+	github.com/google/go-github/v72 v72.0.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/cli v1.1.7 // indirect
@@ -107,13 +107,12 @@ require (
 	github.com/yuin/goldmark-meta v1.1.0 // indirect
 	github.com/zclconf/go-cty v1.16.2 // indirect
 	go.abhg.dev/goldmark/frontmatter v0.2.0 // indirect
-	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/crypto v0.39.0 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
-	golang.org/x/mod v0.24.0 // indirect
-	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
-	golang.org/x/tools v0.32.0 // indirect
+	golang.org/x/mod v0.25.0 // indirect
+	golang.org/x/net v0.41.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250422160041-2d3770c4ea7f // indirect
 	google.golang.org/grpc v1.72.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
