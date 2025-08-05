@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 type Ssh struct {
@@ -54,6 +55,17 @@ func (c *Commits) Msg() string {
 		return "Write file with Terraform Provider Git"
 	}
 	return c.Message.ValueString()
+}
+
+func newCommits(m *GitProviderModel) *Commits {
+	c := m.Commits
+	if c == nil {
+		c = &Commits{
+			AuthorName: basetypes.NewStringValue("Terraform Provider Git"),
+			Message:    basetypes.NewStringValue("Write file with Terraform Provider Git."),
+		}
+	}
+	return c
 }
 
 var _ provider.Provider = &GitProvider{}
@@ -154,7 +166,7 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		branch:         data.Branch.ValueString(),
 		ssh:            data.Ssh,
 		http:           data.Http,
-		commits:        data.Commits,
+		commits:        newCommits(&data),
 		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
 }
