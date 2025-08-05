@@ -22,9 +22,20 @@ description: |-
 ### Optional
 
 - `branch` (String) Branchname to use for commits.
+- `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.
 - `ssh` (Attributes) (see [below for nested schema](#nestedatt--ssh))
+
+<a id="nestedatt--commits"></a>
+### Nested Schema for `commits`
+
+Optional:
+
+- `author_email` (String) Author email for commits.
+- `author_name` (String) Author name for commits.
+- `message` (String) Commit message.
+
 
 <a id="nestedatt--http"></a>
 ### Nested Schema for `http`

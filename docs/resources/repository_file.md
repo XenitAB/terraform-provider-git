@@ -29,9 +29,6 @@ resource "git_repository_file" "this" {
 
 ### Optional
 
-- `author_email` (String)
-- `author_name` (String)
-- `message` (String)
 - `override_on_create` (Boolean)
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
