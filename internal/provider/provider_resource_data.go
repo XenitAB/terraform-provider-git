@@ -17,6 +17,7 @@ type ProviderResourceData struct {
 	branch         string
 	ssh            *Ssh
 	http           *Http
+	commits        *Commits
 	ignore_updates bool
 }
 
@@ -26,6 +27,10 @@ func (prd *ProviderResourceData) IgnoreUpdates(ctx context.Context) bool {
 
 func (prd *ProviderResourceData) Branch(ctx context.Context) string {
 	return prd.branch
+}
+
+func (prd *ProviderResourceData) Commits(ctx context.Context) *Commits {
+	return prd.commits
 }
 
 func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Client, error) {

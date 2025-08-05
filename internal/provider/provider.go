@@ -8,6 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 type Ssh struct {
@@ -23,12 +24,48 @@ type Http struct {
 	CertificateAuthority types.String `tfsdk:"certificate_authority"`
 }
 
+type Commits struct {
+	AuthorName  types.String `tfsdk:"author_name"`
+	AuthorEmail types.String `tfsdk:"author_email"`
+	Message     types.String `tfsdk:"message"`
+}
+
 type GitProviderModel struct {
 	Url           types.String `tfsdk:"url"`
 	Branch        types.String `tfsdk:"branch"`
 	Ssh           *Ssh         `tfsdk:"ssh"`
 	Http          *Http        `tfsdk:"http"`
+	Commits       *Commits     `tfsdk:"commits"`
 	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
+}
+
+func (c *Commits) Author() string {
+	if c.AuthorName.ValueString() == "" {
+		return "Terraform Provider Git"
+	}
+	return c.AuthorName.ValueString()
+}
+
+func (c *Commits) Email() string {
+	return c.AuthorName.ValueString()
+}
+
+func (c *Commits) Msg() string {
+	if c.Message.ValueString() == "" {
+		return "Write file with Terraform Provider Git"
+	}
+	return c.Message.ValueString()
+}
+
+func newCommits(m *GitProviderModel) *Commits {
+	c := m.Commits
+	if c == nil {
+		c = &Commits{
+			AuthorName: basetypes.NewStringValue("Terraform Provider Git"),
+			Message:    basetypes.NewStringValue("Write file with Terraform Provider Git."),
+		}
+	}
+	return c
 }
 
 var _ provider.Provider = &GitProvider{}
@@ -93,6 +130,23 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				},
 				Optional: true,
 			},
+			"commits": schema.SingleNestedAttribute{
+				Attributes: map[string]schema.Attribute{
+					"author_name": schema.StringAttribute{
+						Description: "Author name for commits.",
+						Optional:    true,
+					},
+					"author_email": schema.StringAttribute{
+						Description: "Author email for commits.",
+						Optional:    true,
+					},
+					"message": schema.StringAttribute{
+						Description: "Commit message.",
+						Optional:    true,
+					},
+				},
+				Optional: true,
+			},
 			"ignore_updates": schema.BoolAttribute{
 				Optional:    true,
 				Description: "If true, any updates to resources of type git_repository_file will be ignored.",
@@ -112,6 +166,7 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		branch:         data.Branch.ValueString(),
 		ssh:            data.Ssh,
 		http:           data.Http,
+		commits:        newCommits(&data),
 		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
 }
