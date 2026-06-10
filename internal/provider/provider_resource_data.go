@@ -15,6 +15,8 @@ import (
 type ProviderResourceData struct {
 	url            string
 	branch         string
+	baseBranch     string
+	dynamicBranch  bool
 	ssh            *Ssh
 	http           *Http
 	commits        *Commits
@@ -46,6 +48,13 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Clien
 	if prd.http != nil && prd.http.InsecureHttpAllowed.ValueBool() {
 		clientOpts = append(clientOpts, gogit.WithInsecureCredentialsOverHTTP())
 	}
+	// When the branch is generated dynamically it may not exist yet. Fetch all
+	// remote branches so SwitchBranch can either track the existing dynamic
+	// branch (e.g. created earlier in the same run) or create it from the base
+	// branch.
+	if prd.dynamicBranch {
+		clientOpts = append(clientOpts, gogit.WithSingleBranch(false))
+	}
 	tmpDir, err := os.MkdirTemp("", "terraform-provider-git")
 	if err != nil {
 		return nil, err
@@ -54,6 +63,25 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Clien
 	if err != nil {
 		return nil, fmt.Errorf("could not create git client: %w", err)
 	}
+
+	if prd.dynamicBranch {
+		base := prd.baseBranch
+		if base == "" {
+			base = "main"
+		}
+		_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: base}})
+		if err != nil {
+			return nil, err
+		}
+		// Create the dynamic branch from the base branch, or check out the
+		// existing dynamic branch if it was already created remotely.
+		err = client.SwitchBranch(ctx, prd.branch)
+		if err != nil {
+			return nil, fmt.Errorf("could not switch to branch %q based on %q: %w", prd.branch, base, err)
+		}
+		return client, nil
+	}
+
 	branch := prd.branch
 	if branch == "" {
 		branch = "main"

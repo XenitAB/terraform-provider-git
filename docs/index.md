@@ -21,8 +21,9 @@ description: |-
 
 ### Optional
 
-- `branch` (String) Branchname to use for commits.
+- `branch` (String) Branchname to use for commits. Conflicts with `dynamic_branch`. If neither is set, `main` is used.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
+- `dynamic_branch` (Attributes) Generate a unique branch name on every run and base it on an existing branch. Conflicts with `branch`. (see [below for nested schema](#nestedatt--dynamic_branch))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.
 - `ssh` (Attributes) (see [below for nested schema](#nestedatt--ssh))
@@ -35,6 +36,17 @@ Optional:
 - `author_email` (String) Author email for commits.
 - `author_name` (String) Author name for commits.
 - `message` (String) Commit message.
+
+
+<a id="nestedatt--dynamic_branch"></a>
+### Nested Schema for `dynamic_branch`
+
+Optional:
+
+- `base` (String) Branch the new branch is created from. Defaults to `main`.
+- `prefix` (String) String prepended to the generated timestamp, e.g. `terraform/`.
+- `suffix` (String) String appended to the generated timestamp.
+- `timestamp_format` (String) Go reference time layout used for the timestamp portion of the branch name. Defaults to `2006-01-02-15-04` (Year-Month-Day-Hour-Minute).
 
 
 <a id="nestedatt--http"></a>

@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -10,6 +12,23 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
+
+type DynamicBranch struct {
+	Prefix          types.String `tfsdk:"prefix"`
+	Suffix          types.String `tfsdk:"suffix"`
+	Base            types.String `tfsdk:"base"`
+	TimestampFormat types.String `tfsdk:"timestamp_format"`
+}
+
+type GitProviderModel struct {
+	Url           types.String   `tfsdk:"url"`
+	Branch        types.String   `tfsdk:"branch"`
+	DynamicBranch *DynamicBranch `tfsdk:"dynamic_branch"`
+	Ssh           *Ssh           `tfsdk:"ssh"`
+	Http          *Http          `tfsdk:"http"`
+	Commits       *Commits       `tfsdk:"commits"`
+	IgnoreUpdates types.Bool     `tfsdk:"ignore_updates"`
+}
 
 type Ssh struct {
 	Username   types.String `tfsdk:"username"`
@@ -28,15 +47,6 @@ type Commits struct {
 	AuthorName  types.String `tfsdk:"author_name"`
 	AuthorEmail types.String `tfsdk:"author_email"`
 	Message     types.String `tfsdk:"message"`
-}
-
-type GitProviderModel struct {
-	Url           types.String `tfsdk:"url"`
-	Branch        types.String `tfsdk:"branch"`
-	Ssh           *Ssh         `tfsdk:"ssh"`
-	Http          *Http        `tfsdk:"http"`
-	Commits       *Commits     `tfsdk:"commits"`
-	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
 }
 
 func (c *Commits) Author() string {
@@ -86,8 +96,30 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Required: true,
 			},
 			"branch": schema.StringAttribute{
-				Description: "Branchname to use for commits.",
+				Description: "Branchname to use for commits. Conflicts with `dynamic_branch`. If neither is set, `main` is used.",
 				Optional:    true,
+			},
+			"dynamic_branch": schema.SingleNestedAttribute{
+				Description: "Generate a unique branch name on every run and base it on an existing branch. Conflicts with `branch`.",
+				Attributes: map[string]schema.Attribute{
+					"prefix": schema.StringAttribute{
+						Description: "String prepended to the generated timestamp, e.g. `terraform/`.",
+						Optional:    true,
+					},
+					"suffix": schema.StringAttribute{
+						Description: "String appended to the generated timestamp.",
+						Optional:    true,
+					},
+					"base": schema.StringAttribute{
+						Description: "Branch the new branch is created from. Defaults to `main`.",
+						Optional:    true,
+					},
+					"timestamp_format": schema.StringAttribute{
+						Description: "Go reference time layout used for the timestamp portion of the branch name. Defaults to `2006-01-02-15-04` (Year-Month-Day-Hour-Minute).",
+						Optional:    true,
+					},
+				},
+				Optional: true,
 			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
@@ -161,14 +193,67 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	branch, baseBranch, dynamic, err := resolveBranch(&data)
+	if err != nil {
+		resp.Diagnostics.AddError("Invalid Branch Configuration", err.Error())
+		return
+	}
+
 	resp.ResourceData = &ProviderResourceData{
 		url:            data.Url.ValueString(),
-		branch:         data.Branch.ValueString(),
+		branch:         branch,
+		baseBranch:     baseBranch,
+		dynamicBranch:  dynamic,
 		ssh:            data.Ssh,
 		http:           data.Http,
 		commits:        newCommits(&data),
 		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
+}
+
+// defaultBaseBranch is used as the branch new dynamic branches are based on, as
+// well as the branch checked out when no branch is configured at all.
+const defaultBaseBranch = "main"
+
+// defaultTimestampFormat is the Go reference time layout used for the timestamp
+// portion of a dynamic branch name (Year-Month-Day-Hour-Minute).
+const defaultTimestampFormat = "2006-01-02-15-04"
+
+// resolveBranch determines the branch to commit to. It returns the resolved
+// branch name, the branch it should be based on, and whether the branch is
+// dynamically generated and therefore may need to be created.
+func resolveBranch(m *GitProviderModel) (branch string, base string, dynamic bool, err error) {
+	hasStatic := m.Branch.ValueString() != ""
+	hasDynamic := m.DynamicBranch != nil
+
+	if hasStatic && hasDynamic {
+		return "", "", false, fmt.Errorf("only one of \"branch\" or \"dynamic_branch\" may be set")
+	}
+
+	if hasDynamic {
+		db := m.DynamicBranch
+
+		base := db.Base.ValueString()
+		if base == "" {
+			base = defaultBaseBranch
+		}
+
+		format := db.TimestampFormat.ValueString()
+		if format == "" {
+			format = defaultTimestampFormat
+		}
+
+		timestamp := time.Now().UTC().Format(format)
+		name := db.Prefix.ValueString() + timestamp + db.Suffix.ValueString()
+		return name, base, true, nil
+	}
+
+	if hasStatic {
+		return m.Branch.ValueString(), m.Branch.ValueString(), false, nil
+	}
+
+	return defaultBaseBranch, defaultBaseBranch, false, nil
 }
 
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
