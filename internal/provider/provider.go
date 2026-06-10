@@ -174,6 +174,7 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewRepositoryFileResource,
+		NewRepositoryBranchResource,
 	}
 }
 
