@@ -37,7 +37,9 @@ resource "github_repository_deploy_key" "this" {
 }
 
 provider "git" {
-  url = "ssh://git@github.com/${var.github_org}/provider-git-test.git"
+  url                        = "ssh://git@github.com/${var.github_org}/provider-git-test.git"
+  branch                     = "provider-git-test"
+  append_timestamp_to_branch = true
   ssh = {
     username    = "git"
     private_key = tls_private_key.this.private_key_pem
