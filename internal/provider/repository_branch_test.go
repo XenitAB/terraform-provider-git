@@ -72,24 +72,18 @@ func TestComputeBranchName_24HourFormat(t *testing.T) {
 
 	suffix := strings.TrimPrefix(result, "test-")
 
-	// 14 consecutive digits — no letters (AM/PM) must appear.
-	matched, _ := regexp.MatchString(`^\d{14}$`, suffix)
+	// The default format "20060102150405" produces exactly 14 digits.
+	matched, err := regexp.MatchString(`^\d{14}$`, suffix)
+	if err != nil {
+		t.Fatalf("unexpected regexp error: %v", err)
+	}
 	if !matched {
-		t.Errorf("timestamp suffix %q contains non-digit characters; expected pure 14-digit YYYYMMDDHHMMSS", suffix)
+		t.Fatalf("timestamp suffix %q does not match YYYYMMDDHHMMSS (14 digits), got %q", "14-digit pattern", suffix)
 	}
 
-	// Parse the hour from the suffix (position 8..9, 0-indexed).
-	// A 24-hour hour can be 00-23; an AM/PM hour is 01-12.
-	// We only verify the format is purely numeric (no AM/PM marker).
 	hourStr := suffix[8:10]
-	var hour int
-	if n, err := regexp.MatchString(`^\d{2}$`, hourStr); !n || err != nil {
-		t.Errorf("hour portion %q is not two digits", hourStr)
-	}
-	// Additionally confirm it could represent a 24-hour value (0–23).
-	if _, err := time.Parse("15", hourStr); err == nil {
-		// Valid 24-hour hour — nothing more to check.
-		_ = hour
+	if _, err := time.Parse("15", hourStr); err != nil {
+		t.Errorf("hour portion %q is not a valid 24-hour value (00-23): %v", hourStr, err)
 	}
 }
 
