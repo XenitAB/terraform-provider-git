@@ -188,6 +188,7 @@ func configuredBranchName(branch string, appendTimestamp bool, now func() time.T
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewRepositoryFileResource,
+		NewRepositoryBranchResource,
 	}
 }
 

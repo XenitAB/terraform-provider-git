@@ -34,6 +34,14 @@ func (prd *ProviderResourceData) Commits(ctx context.Context) *Commits {
 }
 
 func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Client, error) {
+	branch := prd.branch
+	if branch == "" {
+		branch = "main"
+	}
+	return prd.GetGitClientForBranch(ctx, branch)
+}
+
+func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, branch string) (*gogit.Client, error) {
 	u, err := url.Parse(prd.url)
 	if err != nil {
 		return nil, err
@@ -46,23 +54,26 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Clien
 	if prd.http != nil && prd.http.InsecureHttpAllowed.ValueBool() {
 		clientOpts = append(clientOpts, gogit.WithInsecureCredentialsOverHTTP())
 	}
+
 	tmpDir, err := os.MkdirTemp("", "terraform-provider-git")
 	if err != nil {
 		return nil, err
 	}
 	client, err := gogit.NewClient(tmpDir, authOpts, clientOpts...)
 	if err != nil {
+		os.RemoveAll(tmpDir)
 		return nil, fmt.Errorf("could not create git client: %w", err)
-	}
-	branch := prd.branch
-	if branch == "" {
-		branch = "main"
 	}
 	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
 	if err != nil {
+		os.RemoveAll(tmpDir)
 		return nil, err
 	}
-	return client, err
+	return client, nil
+}
+
+func (prd *ProviderResourceData) GetGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, error) {
+	return prd.GetGitClientForBranch(ctx, branch)
 }
 
 func getAuthOpts(u *url.URL, h *Http, s *Ssh) (*git.AuthOptions, error) {
