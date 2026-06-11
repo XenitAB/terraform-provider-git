@@ -69,7 +69,7 @@ func (r *RepositoryBranchResource) Schema(ctx context.Context, req resource.Sche
 				},
 			},
 			"append_timestamp": schema.BoolAttribute{
-				Optional:      true,
+				Optional:    true,
 				Computed:    true,
 				Default:     booldefault.StaticBool(false),
 				Description: "Whether to append a -YYYYMMDDHHMMSS timestamp suffix to the branch name.",
