@@ -247,8 +247,8 @@ func (r *RepositoryBranchResource) Delete(ctx context.Context, req resource.Dele
 
 // computeBranchName returns the final branch name, optionally appending a
 // timestamp suffix using the provided Go time layout. The timestamp is always
-// formatted in UTC so that the result is deterministic and uses 24-hour clock
-// values (Go's reference hour is 15, which is 24-hour format).
+// formatted in UTC so that the result is consistent across time zones and uses
+// 24-hour clock values (Go's reference hour is 15, which is 24-hour format).
 func computeBranchName(name string, appendTimestamp bool, format string) string {
 	if !appendTimestamp {
 		return name
