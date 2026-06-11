@@ -83,7 +83,7 @@ func TestComputeBranchName_24HourFormat(t *testing.T) {
 
 	hourStr := suffix[8:10]
 	if _, err := time.Parse("15", hourStr); err != nil {
-		t.Errorf("hour portion %q is not a valid 24-hour value (00-23): %v", hourStr, err)
+		t.Fatalf("hour portion %q is not a valid 24-hour value (00-23): %v", hourStr, err)
 	}
 }
 
