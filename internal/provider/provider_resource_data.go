@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/fluxcd/flux2/pkg/manifestgen/sourcesecret"
 	"github.com/fluxcd/pkg/git"
@@ -56,80 +55,21 @@ func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, bran
 		clientOpts = append(clientOpts, gogit.WithInsecureCredentialsOverHTTP())
 	}
 
-	newClient := func() (*gogit.Client, string, error) {
-		tmpDir, err := os.MkdirTemp("", "terraform-provider-git")
-		if err != nil {
-			return nil, "", err
-		}
-		client, err := gogit.NewClient(tmpDir, authOpts, clientOpts...)
-		if err != nil {
-			os.RemoveAll(tmpDir)
-			return nil, "", fmt.Errorf("could not create git client: %w", err)
-		}
-		return client, tmpDir, nil
-	}
-
-	client, tmpDir, err := newClient()
+	tmpDir, err := os.MkdirTemp("", "terraform-provider-git")
 	if err != nil {
 		return nil, err
 	}
-	_, cloneErr := client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
-	if cloneErr == nil {
-		return client, nil
-	}
-
-	// Only attempt the fallback when the branch simply does not exist yet on the
-	// remote.  Auth errors, network errors, or a completely missing repository
-	// should be surfaced immediately.
-	if !isBranchNotFoundErr(cloneErr) {
+	client, err := gogit.NewClient(tmpDir, authOpts, clientOpts...)
+	if err != nil {
 		os.RemoveAll(tmpDir)
-		return nil, cloneErr
+		return nil, fmt.Errorf("could not create git client: %w", err)
 	}
-
-	// The branch doesn't exist on the remote yet (e.g. append_timestamp_to_branch
-	// produced a brand-new name).  Clean up the failed clone and fall back to
-	// cloning the default branch, then create and push the requested branch so
-	// that subsequent git_repository_file operations can proceed.
-	os.RemoveAll(tmpDir)
-
-	fallbackClient, fallbackTmpDir, err := newClient()
+	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
 	if err != nil {
+		os.RemoveAll(tmpDir)
 		return nil, err
 	}
-
-	var fallbackCloneErr error
-	for _, defaultBranch := range []string{"main", "master"} {
-		_, fallbackCloneErr = fallbackClient.Clone(ctx, prd.url, repository.CloneConfig{
-			CheckoutStrategy: repository.CheckoutStrategy{Branch: defaultBranch},
-		})
-		if fallbackCloneErr == nil {
-			break
-		}
-	}
-	if fallbackCloneErr != nil {
-		os.RemoveAll(fallbackTmpDir)
-		return nil, fmt.Errorf("branch %q not found and could not clone default branch as fallback: %w", branch, fallbackCloneErr)
-	}
-
-	if err := fallbackClient.SwitchBranch(ctx, branch); err != nil {
-		os.RemoveAll(fallbackTmpDir)
-		return nil, fmt.Errorf("failed to create local branch %q: %w", branch, err)
-	}
-
-	refspec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
-	if err := fallbackClient.Push(ctx, repository.PushConfig{Refspecs: []string{refspec}}); err != nil {
-		os.RemoveAll(fallbackTmpDir)
-		return nil, fmt.Errorf("failed to push branch %q to remote: %w", branch, err)
-	}
-
-	return fallbackClient, nil
-}
-
-// isBranchNotFoundErr reports whether err indicates that a specific branch does
-// not exist on the remote (as opposed to the entire repository being absent or
-// an authentication/network failure).
-func isBranchNotFoundErr(err error) bool {
-	return strings.Contains(err.Error(), "couldn't find remote ref")
+	return client, nil
 }
 
 func getAuthOpts(u *url.URL, h *Http, s *Ssh) (*git.AuthOptions, error) {
