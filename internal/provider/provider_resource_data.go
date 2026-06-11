@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/fluxcd/flux2/pkg/manifestgen/sourcesecret"
 	"github.com/fluxcd/pkg/git"
@@ -42,13 +43,48 @@ func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Clien
 }
 
 func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, branch string) (*gogit.Client, error) {
+	client, tmpDir, err := prd.getGitClientForExistingBranch(ctx, branch)
+	if err == nil {
+		return client, nil
+	}
+	if !isMissingRemoteRefError(err) {
+		return nil, err
+	}
+
+	os.RemoveAll(tmpDir)
+
+	for _, fallbackBranch := range []string{"main", "master"} {
+		fallbackClient, fallbackTmpDir, fallbackErr := prd.getGitClientForExistingBranch(ctx, fallbackBranch)
+		if fallbackErr != nil {
+			os.RemoveAll(fallbackTmpDir)
+			continue
+		}
+
+		if err := fallbackClient.SwitchBranch(ctx, branch); err != nil {
+			os.RemoveAll(fallbackTmpDir)
+			return nil, err
+		}
+
+		refspec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
+		if err := fallbackClient.Push(ctx, repository.PushConfig{Refspecs: []string{refspec}}); err != nil {
+			os.RemoveAll(fallbackTmpDir)
+			return nil, err
+		}
+
+		return fallbackClient, nil
+	}
+
+	return nil, err
+}
+
+func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, string, error) {
 	u, err := url.Parse(prd.url)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	authOpts, err := getAuthOpts(u, prd.http, prd.ssh)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	clientOpts := []gogit.ClientOption{gogit.WithDiskStorage()}
 	if prd.http != nil && prd.http.InsecureHttpAllowed.ValueBool() {
@@ -57,23 +93,30 @@ func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, bran
 
 	tmpDir, err := os.MkdirTemp("", "terraform-provider-git")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	client, err := gogit.NewClient(tmpDir, authOpts, clientOpts...)
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		return nil, fmt.Errorf("could not create git client: %w", err)
+		return nil, tmpDir, fmt.Errorf("could not create git client: %w", err)
 	}
 	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
 	if err != nil {
 		os.RemoveAll(tmpDir)
-		return nil, err
+		return nil, tmpDir, err
 	}
-	return client, nil
+	return client, tmpDir, nil
 }
 
 func (prd *ProviderResourceData) GetGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, error) {
-	return prd.GetGitClientForBranch(ctx, branch)
+	client, _, err := prd.getGitClientForExistingBranch(ctx, branch)
+	return client, err
+}
+
+func isMissingRemoteRefError(err error) bool {
+	errMessage := strings.ToLower(err.Error())
+	return strings.Contains(errMessage, "couldn't find remote ref") ||
+		strings.Contains(errMessage, "reference not found")
 }
 
 func getAuthOpts(u *url.URL, h *Http, s *Ssh) (*git.AuthOptions, error) {
