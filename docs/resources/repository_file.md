@@ -51,5 +51,5 @@ Optional:
 Import is supported using the following syntax:
 
 ```shell
-terraform import git_repository_fike.this main:README.md
+terraform import git_repository_file.this main:README.md
 ```
