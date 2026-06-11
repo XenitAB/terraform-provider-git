@@ -8,7 +8,24 @@ description: |-
 
 # git Provider
 
+## Example Usage
 
+```hcl
+provider "git" {
+  url                        = "https://github.com/XenitAB/argocd-fleet-infra"
+  branch                     = "unbox-tofu-git-provider"
+  append_timestamp_to_branch = true
+
+  http = {
+    username = "git"
+    password = data.github_app_token.this.token
+  }
+
+  ignore_updates = true
+}
+```
+
+When `append_timestamp_to_branch` is set to `true`, the provider appends a single `-YYYYMMDDHHMMSS` suffix to the configured `branch` value during provider configuration and uses that resolved branch name for all Git operations during the run.
 
 
 
@@ -21,6 +38,7 @@ description: |-
 
 ### Optional
 
+- `append_timestamp_to_branch` (Boolean) If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.
 - `branch` (String) Branchname to use for commits.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -31,12 +32,13 @@ type Commits struct {
 }
 
 type GitProviderModel struct {
-	Url           types.String `tfsdk:"url"`
-	Branch        types.String `tfsdk:"branch"`
-	Ssh           *Ssh         `tfsdk:"ssh"`
-	Http          *Http        `tfsdk:"http"`
-	Commits       *Commits     `tfsdk:"commits"`
-	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
+	Url                     types.String `tfsdk:"url"`
+	Branch                  types.String `tfsdk:"branch"`
+	AppendTimestampToBranch types.Bool   `tfsdk:"append_timestamp_to_branch"`
+	Ssh                     *Ssh         `tfsdk:"ssh"`
+	Http                    *Http        `tfsdk:"http"`
+	Commits                 *Commits     `tfsdk:"commits"`
+	IgnoreUpdates           types.Bool   `tfsdk:"ignore_updates"`
 }
 
 func (c *Commits) Author() string {
@@ -87,6 +89,10 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 			},
 			"branch": schema.StringAttribute{
 				Description: "Branchname to use for commits.",
+				Optional:    true,
+			},
+			"append_timestamp_to_branch": schema.BoolAttribute{
+				Description: "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
 				Optional:    true,
 			},
 			"ssh": schema.SingleNestedAttribute{
@@ -163,12 +169,20 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 	resp.ResourceData = &ProviderResourceData{
 		url:            data.Url.ValueString(),
-		branch:         data.Branch.ValueString(),
+		branch:         configuredBranchName(data.Branch.ValueString(), data.AppendTimestampToBranch.ValueBool(), time.Now),
 		ssh:            data.Ssh,
 		http:           data.Http,
 		commits:        newCommits(&data),
 		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
+}
+
+func configuredBranchName(branch string, appendTimestamp bool, now func() time.Time) string {
+	if !appendTimestamp || branch == "" {
+		return branch
+	}
+
+	return branch + "-" + now().Format("20060102150405")
 }
 
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
