@@ -188,7 +188,7 @@ func (r *RepositoryBranchResource) Read(ctx context.Context, req resource.ReadRe
 
 	// Attempt to clone from the branch to verify it still exists on the remote.
 	branchName := data.ComputedName.ValueString()
-	_, err := r.prd.GetGitClientForBranch(ctx, branchName)
+	_, err := r.prd.GetGitClientForExistingBranch(ctx, branchName)
 	if err != nil {
 		// The branch can no longer be reached; remove from state so Terraform
 		// will recreate it on the next apply.

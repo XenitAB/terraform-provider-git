@@ -72,6 +72,10 @@ func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, bran
 	return client, nil
 }
 
+func (prd *ProviderResourceData) GetGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, error) {
+	return prd.GetGitClientForBranch(ctx, branch)
+}
+
 func getAuthOpts(u *url.URL, h *Http, s *Ssh) (*git.AuthOptions, error) {
 	switch u.Scheme {
 	case "http":
