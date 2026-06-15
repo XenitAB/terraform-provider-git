@@ -175,8 +175,9 @@ func (prd *ProviderResourceData) detectDefaultBranch() (string, error) {
 		Auth:     authMethod,
 		CABundle: authOpts.CAFile,
 	}
-	if prd.http != nil && prd.http.InsecureHttpAllowed.ValueBool() {
-		listOpts.InsecureSkipTLS = true
+	if u.Scheme == "http" && (prd.http == nil || !prd.http.InsecureHttpAllowed.ValueBool()) {
+		// Prevent leaking credentials over plain HTTP unless explicitly allowed.
+		listOpts.Auth = nil
 	}
 
 	refs, err := remote.List(listOpts)
