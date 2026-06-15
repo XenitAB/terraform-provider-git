@@ -12,9 +12,8 @@ description: |-
 
 ```hcl
 provider "git" {
-  url                        = "https://github.com/XenitAB/argocd-fleet-infra"
-  branch                     = "unbox-tofu-git-provider"
-  append_timestamp_to_branch = true
+  url    = "https://github.com/XenitAB/argocd-fleet-infra"
+  branch = "main"
 
   http = {
     username = "git"
@@ -23,9 +22,35 @@ provider "git" {
 
   ignore_updates = true
 }
+
+# Create a unique, short-lived branch per run. computed_name is persisted in
+# state, so it is stable across plan/apply/refresh within a run.
+resource "git_repository_branch" "run" {
+  name             = "unbox-tofu-git-provider"
+  append_timestamp = true
+}
+
+# Reference computed_name so the file targets the per-run branch. The reference
+# creates an implicit dependency that guarantees the branch exists first.
+resource "git_repository_file" "example" {
+  path    = "example.yaml"
+  content = "hello: world"
+  branch  = git_repository_branch.run.computed_name
+}
 ```
 
-When `append_timestamp_to_branch` is set to `true`, the provider appends a single `-YYYYMMDDHHMMSS` suffix to the configured `branch` value during provider configuration and uses that resolved branch name for all Git operations during the run.
+To create unique, short-lived branches per run, use a `git_repository_branch`
+resource with `append_timestamp = true` and reference its `computed_name` from
+`git_repository_file.branch`. Because `computed_name` is computed once at create
+time and persisted in state, the branch name is stable across all phases of a
+run; with ephemeral state (a fresh state per CI run) each run produces a new
+branch automatically.
+
+~> **Deprecated:** `append_timestamp_to_branch` is unreliable and deprecated. The
+suffix is recomputed every time the provider is configured (each plan/apply/refresh
+phase), so the resolved branch name is not stable and is never persisted in state.
+This can lead to errors such as `couldn't find remote ref` because different phases
+target different branch names. Use the `git_repository_branch` pattern above instead.
 
 
 
@@ -38,7 +63,7 @@ When `append_timestamp_to_branch` is set to `true`, the provider appends a singl
 
 ### Optional
 
-- `append_timestamp_to_branch` (Boolean) If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.
+- `append_timestamp_to_branch` (Boolean, Deprecated) If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.
 - `branch` (String) Branchname to use for commits.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))

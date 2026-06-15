@@ -92,8 +92,9 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Optional:    true,
 			},
 			"append_timestamp_to_branch": schema.BoolAttribute{
-				Description: "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
-				Optional:    true,
+				Description:        "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
+				DeprecationMessage: "append_timestamp_to_branch is deprecated and unreliable: the suffix is recomputed every time the provider is configured (each plan/apply/refresh phase), so the resolved branch name is not stable and is never persisted in state. Use a git_repository_branch resource with append_timestamp = true and reference its computed_name from git_repository_file.branch instead.",
+				Optional:           true,
 			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
