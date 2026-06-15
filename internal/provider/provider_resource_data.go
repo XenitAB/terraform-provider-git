@@ -43,11 +43,21 @@ func (prd *ProviderResourceData) Commits(ctx context.Context) *Commits {
 }
 
 func (prd *ProviderResourceData) GetGitClient(ctx context.Context) (*gogit.Client, error) {
-	branch := prd.branch
+	return prd.GetGitClientForBranch(ctx, prd.ResolveBranch(""))
+}
+
+// ResolveBranch determines the effective branch to operate on. When override is
+// non-empty it takes precedence, otherwise the provider-configured branch is
+// used, falling back to "main" when neither is set.
+func (prd *ProviderResourceData) ResolveBranch(override string) string {
+	branch := override
+	if branch == "" {
+		branch = prd.branch
+	}
 	if branch == "" {
 		branch = "main"
 	}
-	return prd.GetGitClientForBranch(ctx, branch)
+	return branch
 }
 
 func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, branch string) (*gogit.Client, error) {
