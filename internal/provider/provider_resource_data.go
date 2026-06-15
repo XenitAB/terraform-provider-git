@@ -11,6 +11,14 @@ import (
 	"github.com/fluxcd/pkg/git"
 	"github.com/fluxcd/pkg/git/gogit"
 	"github.com/fluxcd/pkg/git/repository"
+	fluxknownhosts "github.com/fluxcd/pkg/ssh/knownhosts"
+	gogitv5 "github.com/go-git/go-git/v5"
+	gogitconfig "github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	gogittransport "github.com/go-git/go-git/v5/plumbing/transport"
+	gogithttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	gogitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/go-git/go-git/v5/storage/memory"
 )
 
 type ProviderResourceData struct {
@@ -53,28 +61,56 @@ func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, bran
 
 	os.RemoveAll(tmpDir)
 
-	for _, fallbackBranch := range []string{"main", "master"} {
+	// Build fallback branch list: first try the detected default branch via
+	// ls-remote, then fall back to the common defaults.
+	fallbackBranches := []string{}
+	seen := map[string]bool{branch: true}
+
+	detectedBranch, lsRemoteErr := prd.detectDefaultBranch()
+	if lsRemoteErr == nil && detectedBranch != "" && !seen[detectedBranch] {
+		fallbackBranches = append(fallbackBranches, detectedBranch)
+		seen[detectedBranch] = true
+	}
+	for _, b := range []string{"main", "master"} {
+		if !seen[b] {
+			fallbackBranches = append(fallbackBranches, b)
+			seen[b] = true
+		}
+	}
+
+	var fallbackErrors []string
+	for _, fallbackBranch := range fallbackBranches {
 		fallbackClient, fallbackTmpDir, fallbackErr := prd.getGitClientForExistingBranch(ctx, fallbackBranch)
 		if fallbackErr != nil {
 			os.RemoveAll(fallbackTmpDir)
+			fallbackErrors = append(fallbackErrors, fmt.Sprintf("branch %q: %s", fallbackBranch, fallbackErr.Error()))
 			continue
 		}
 
-		if err := fallbackClient.SwitchBranch(ctx, branch); err != nil {
+		if switchErr := fallbackClient.SwitchBranch(ctx, branch); switchErr != nil {
 			os.RemoveAll(fallbackTmpDir)
-			return nil, err
+			return nil, fmt.Errorf("failed to switch to branch %q from fallback %q: %w", branch, fallbackBranch, switchErr)
 		}
 
 		refspec := fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)
-		if err := fallbackClient.Push(ctx, repository.PushConfig{Refspecs: []string{refspec}}); err != nil {
+		if pushErr := fallbackClient.Push(ctx, repository.PushConfig{Refspecs: []string{refspec}}); pushErr != nil {
 			os.RemoveAll(fallbackTmpDir)
-			return nil, err
+			return nil, fmt.Errorf("failed to push branch %q from fallback %q: %w", branch, fallbackBranch, pushErr)
 		}
 
 		return fallbackClient, nil
 	}
 
-	return nil, err
+	// All fallbacks failed — build a descriptive error.
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "branch %q does not exist on remote", branch)
+	if lsRemoteErr != nil {
+		fmt.Fprintf(&sb, "; fallback: could not detect default branch via ls-remote: %s", lsRemoteErr.Error())
+	}
+	if len(fallbackErrors) > 0 {
+		fmt.Fprintf(&sb, "; tried fallbacks: %s", strings.Join(fallbackErrors, "; "))
+	}
+	return nil, fmt.Errorf("%s", sb.String())
 }
 
 func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, string, error) {
@@ -111,6 +147,87 @@ func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Conte
 func (prd *ProviderResourceData) GetGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, error) {
 	client, _, err := prd.getGitClientForExistingBranch(ctx, branch)
 	return client, err
+}
+
+// detectDefaultBranch uses git ls-remote to discover the remote HEAD ref and
+// returns the corresponding branch name. This avoids hardcoding "main"/"master".
+func (prd *ProviderResourceData) detectDefaultBranch() (string, error) {
+	u, err := url.Parse(prd.url)
+	if err != nil {
+		return "", fmt.Errorf("could not parse URL: %w", err)
+	}
+	authOpts, err := getAuthOpts(u, prd.http, prd.ssh)
+	if err != nil {
+		return "", fmt.Errorf("could not get auth options: %w", err)
+	}
+
+	authMethod, err := gogitAuthMethod(authOpts)
+	if err != nil {
+		return "", fmt.Errorf("could not build auth method: %w", err)
+	}
+
+	remote := gogitv5.NewRemote(memory.NewStorage(), &gogitconfig.RemoteConfig{
+		Name: "origin",
+		URLs: []string{prd.url},
+	})
+
+	listOpts := &gogitv5.ListOptions{
+		Auth:     authMethod,
+		CABundle: authOpts.CAFile,
+	}
+	if u.Scheme == "http" && (prd.http == nil || !prd.http.InsecureHttpAllowed.ValueBool()) {
+		// Prevent leaking credentials over plain HTTP unless explicitly allowed.
+		listOpts.Auth = nil
+	}
+
+	refs, err := remote.List(listOpts)
+	if err != nil {
+		return "", fmt.Errorf("could not list remote refs: %w", err)
+	}
+
+	for _, ref := range refs {
+		if ref.Name() == plumbing.HEAD && ref.Type() == plumbing.SymbolicReference {
+			target := ref.Target().String()
+			if branch, ok := strings.CutPrefix(target, "refs/heads/"); ok {
+				return branch, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("HEAD ref not found in remote refs")
+}
+
+// gogitAuthMethod converts a fluxcd git.AuthOptions into a go-git
+// transport.AuthMethod suitable for use with go-git's Remote.List.
+func gogitAuthMethod(opts *git.AuthOptions) (gogittransport.AuthMethod, error) {
+	if opts == nil {
+		return nil, nil
+	}
+	switch opts.Transport {
+	case git.HTTP, git.HTTPS:
+		if opts.Username != "" || opts.Password != "" {
+			return &gogithttp.BasicAuth{
+				Username: opts.Username,
+				Password: opts.Password,
+			}, nil
+		}
+		return nil, nil
+	case git.SSH:
+		pk, err := gogitssh.NewPublicKeys(opts.Username, opts.Identity, opts.Password)
+		if err != nil {
+			return nil, err
+		}
+		if len(opts.KnownHosts) > 0 {
+			callback, err := fluxknownhosts.New(opts.KnownHosts)
+			if err != nil {
+				return nil, err
+			}
+			pk.HostKeyCallback = callback
+		}
+		return pk, nil
+	default:
+		return nil, fmt.Errorf("unsupported transport %q", opts.Transport)
+	}
 }
 
 func isMissingRemoteRefError(err error) bool {
