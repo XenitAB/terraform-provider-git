@@ -63,8 +63,9 @@ target different branch names. Use the `git_repository_branch` pattern above ins
 
 ### Optional
 
-- `append_timestamp_to_branch` (Boolean, Deprecated) If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.
-- `branch` (String) Branchname to use for commits.
+- `append_timestamp_to_branch` (Boolean) If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.
+- `base_branch` (String) Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to "main".
+- `branch` (String) Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.

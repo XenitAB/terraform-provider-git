@@ -22,12 +22,14 @@ import (
 )
 
 type ProviderResourceData struct {
-	url            string
-	branch         string
-	ssh            *Ssh
-	http           *Http
-	commits        *Commits
-	ignore_updates bool
+	url              string
+	branch           string
+	base_branch      string
+	append_timestamp bool
+	ssh              *Ssh
+	http             *Http
+	commits          *Commits
+	ignore_updates   bool
 }
 
 func (prd *ProviderResourceData) IgnoreUpdates(ctx context.Context) bool {
@@ -143,19 +145,32 @@ func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Conte
 	}
 	client, err := gogit.NewClient(tmpDir, authOpts, clientOpts...)
 	if err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, tmpDir, fmt.Errorf("could not create git client: %w", err)
+		return nil, fmt.Errorf("could not create git client: %w", err)
 	}
-	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: branch}})
+
+	// When appending a timestamp, the target branch does not exist yet, so the
+	// clone is performed from the base branch and the new branch is created
+	// locally afterwards. Otherwise the configured branch is cloned directly.
+	checkoutBranch := prd.branch
+	if prd.append_timestamp {
+		checkoutBranch = prd.base_branch
+	}
+	if checkoutBranch == "" {
+		checkoutBranch = "main"
+	}
+
+	_, err = client.Clone(ctx, prd.url, repository.CloneConfig{CheckoutStrategy: repository.CheckoutStrategy{Branch: checkoutBranch}})
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		return nil, tmpDir, err
 	}
-	return client, tmpDir, nil
-}
 
-func (prd *ProviderResourceData) GetGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, error) {
-	client, _, err := prd.getGitClientForExistingBranch(ctx, branch)
+	if prd.append_timestamp && prd.branch != "" {
+		if err := client.SwitchBranch(ctx, prd.branch); err != nil {
+			return nil, fmt.Errorf("could not create branch %q: %w", prd.branch, err)
+		}
+	}
+
 	return client, err
 }
 

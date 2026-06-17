@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -34,6 +35,7 @@ type Commits struct {
 type GitProviderModel struct {
 	Url                     types.String `tfsdk:"url"`
 	Branch                  types.String `tfsdk:"branch"`
+	BaseBranch              types.String `tfsdk:"base_branch"`
 	AppendTimestampToBranch types.Bool   `tfsdk:"append_timestamp_to_branch"`
 	Ssh                     *Ssh         `tfsdk:"ssh"`
 	Http                    *Http        `tfsdk:"http"`
@@ -70,6 +72,24 @@ func newCommits(m *GitProviderModel) *Commits {
 	return c
 }
 
+// branchTimestampSuffix returns a timestamp suffix in the format
+// YYYYMMDDHHMMSSmmm (UTC), where mmm are the milliseconds expressed with three
+// digits. It is used to make every provider run target a unique branch.
+func branchTimestampSuffix(t time.Time) string {
+	t = t.UTC()
+	return fmt.Sprintf("%s%03d", t.Format("20060102150405"), t.Nanosecond()/int(time.Millisecond))
+}
+
+// resolveBranch computes the branch the provider should use for commits. When
+// appendTimestamp is true and a branch name is configured, a unique timestamp
+// suffix is appended so that each run lands on its own branch.
+func resolveBranch(branch string, appendTimestamp bool, now time.Time) string {
+	if appendTimestamp && branch != "" {
+		return fmt.Sprintf("%s-%s", branch, branchTimestampSuffix(now))
+	}
+	return branch
+}
+
 var _ provider.Provider = &GitProvider{}
 
 type GitProvider struct {
@@ -88,7 +108,15 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Required: true,
 			},
 			"branch": schema.StringAttribute{
-				Description: "Branchname to use for commits.",
+				Description: "Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.",
+				Optional:    true,
+			},
+			"base_branch": schema.StringAttribute{
+				Description: "Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to \"main\".",
+				Optional:    true,
+			},
+			"append_timestamp_to_branch": schema.BoolAttribute{
+				Description: "If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.",
 				Optional:    true,
 			},
 			"append_timestamp_to_branch": schema.BoolAttribute{
@@ -168,13 +196,19 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	appendTimestamp := data.AppendTimestampToBranch.ValueBool()
+	branch := resolveBranch(data.Branch.ValueString(), appendTimestamp, time.Now())
+
 	resp.ResourceData = &ProviderResourceData{
-		url:            data.Url.ValueString(),
-		branch:         configuredBranchName(data.Branch.ValueString(), data.AppendTimestampToBranch.ValueBool(), time.Now),
-		ssh:            data.Ssh,
-		http:           data.Http,
-		commits:        newCommits(&data),
-		ignore_updates: data.IgnoreUpdates.ValueBool(),
+		url:              data.Url.ValueString(),
+		branch:           branch,
+		base_branch:      data.BaseBranch.ValueString(),
+		append_timestamp: appendTimestamp,
+		ssh:              data.Ssh,
+		http:             data.Http,
+		commits:          newCommits(&data),
+		ignore_updates:   data.IgnoreUpdates.ValueBool(),
 	}
 }
 
