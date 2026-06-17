@@ -30,6 +30,7 @@ type RepositoryFileResourceModel struct {
 	ID               types.String   `tfsdk:"id"`
 	Path             types.String   `tfsdk:"path"`
 	Content          types.String   `tfsdk:"content"`
+	Branch           types.String   `tfsdk:"branch"`
 	OverrideOnCreate types.Bool     `tfsdk:"override_on_create"`
 	Timeouts         timeouts.Value `tfsdk:"timeouts"`
 }
@@ -112,6 +113,13 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 					UseStateIfUpdatesShouldBeIgnored(),
 				},
 			},
+			"branch": schema.StringAttribute{
+				Optional:    true,
+				Description: "Branch to write the file to. Defaults to the provider-level branch config or main. Reference a git_repository_branch computed_name to target a per-run branch.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+			},
 			"override_on_create": schema.BoolAttribute{
 				Optional:      true,
 				Computed:      true,
@@ -166,7 +174,7 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
 		}
 
-		client, err := r.prd.GetGitClient(ctx)
+		client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -253,7 +261,7 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	}
 
 	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
-		client, err := r.prd.GetGitClient(ctx)
+		client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -311,7 +319,7 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 	}
 
 	err := retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
-		client, err := r.prd.GetGitClient(ctx)
+		client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
@@ -346,7 +354,7 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 }
 
 func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	_, p, ok := strings.Cut(req.ID, ":")
+	branch, p, ok := strings.Cut(req.ID, ":")
 	if !ok {
 		resp.Diagnostics.AddError("Invalid ID", "Expected id to have format branch:path")
 	}
@@ -354,6 +362,9 @@ func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.I
 	data := &RepositoryFileResourceModel{
 		ID:               basetypes.NewStringValue(p),
 		OverrideOnCreate: basetypes.NewBoolValue(true),
+	}
+	if branch != "" {
+		data.Branch = basetypes.NewStringValue(branch)
 	}
 
 	importTimeout, diags := data.Timeouts.Read(ctx, 10*time.Minute)
@@ -375,12 +386,16 @@ func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.I
 	resp.Diagnostics.Append(diags...)
 	diags = resp.State.SetAttribute(ctx, path.Root("content"), data.Content.ValueString())
 	resp.Diagnostics.Append(diags...)
+	if branch != "" {
+		diags = resp.State.SetAttribute(ctx, path.Root("branch"), branch)
+		resp.Diagnostics.Append(diags...)
+	}
 	diags = resp.State.SetAttribute(ctx, path.Root("override_on_create"), data.OverrideOnCreate.ValueBool())
 	resp.Diagnostics.Append(diags...)
 }
 
 func (r *RepositoryFileResource) ReadFile(ctx context.Context, data *RepositoryFileResourceModel, diags *diag.Diagnostics) {
-	client, err := r.prd.GetGitClient(ctx)
+	client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 	if err != nil {
 		diags.AddError("Git Client Error", err.Error())
 		return
