@@ -37,16 +37,25 @@ resource "github_repository_deploy_key" "this" {
 }
 
 provider "git" {
-  url = "ssh://git@github.com/${var.github_org}/provider-git-test.git"
+  url    = "ssh://git@github.com/${var.github_org}/provider-git-test.git"
+  branch = "provider-git-test"
   ssh = {
     username    = "git"
     private_key = tls_private_key.this.private_key_pem
   }
 }
 
-resource "git_repository_file" "this" {
+# Unique, short-lived branch per run. computed_name is persisted in state and is
+# stable across plan/apply/refresh within a run.
+resource "git_repository_branch" "run" {
   depends_on = [github_repository_deploy_key.this]
 
+  name             = "provider-git-test"
+  append_timestamp = true
+}
+
+resource "git_repository_file" "this" {
   path    = "README.mddd"
   content = "Hello World 123"
+  branch  = git_repository_branch.run.computed_name
 }
