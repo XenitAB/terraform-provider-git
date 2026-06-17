@@ -8,7 +8,49 @@ description: |-
 
 # git Provider
 
+## Example Usage
 
+```hcl
+provider "git" {
+  url    = "https://github.com/XenitAB/argocd-fleet-infra"
+  branch = "main"
+
+  http = {
+    username = "git"
+    password = data.github_app_token.this.token
+  }
+
+  ignore_updates = true
+}
+
+# Create a unique, short-lived branch per run. computed_name is persisted in
+# state, so it is stable across plan/apply/refresh within a run.
+resource "git_repository_branch" "run" {
+  name             = "unbox-tofu-git-provider"
+  append_timestamp = true
+}
+
+# Reference computed_name so the file targets the per-run branch. The reference
+# creates an implicit dependency that guarantees the branch exists first.
+resource "git_repository_file" "example" {
+  path    = "example.yaml"
+  content = "hello: world"
+  branch  = git_repository_branch.run.computed_name
+}
+```
+
+To create unique, short-lived branches per run, use a `git_repository_branch`
+resource with `append_timestamp = true` and reference its `computed_name` from
+`git_repository_file.branch`. Because `computed_name` is computed once at create
+time and persisted in state, the branch name is stable across all phases of a
+run; with ephemeral state (a fresh state per CI run) each run produces a new
+branch automatically.
+
+~> **Deprecated:** `append_timestamp_to_branch` is unreliable and deprecated. The
+suffix is recomputed every time the provider is configured (each plan/apply/refresh
+phase), so the resolved branch name is not stable and is never persisted in state.
+This can lead to errors such as `couldn't find remote ref` because different phases
+target different branch names. Use the `git_repository_branch` pattern above instead.
 
 
 

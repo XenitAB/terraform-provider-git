@@ -119,6 +119,11 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Description: "If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.",
 				Optional:    true,
 			},
+			"append_timestamp_to_branch": schema.BoolAttribute{
+				Description:        "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
+				DeprecationMessage: "append_timestamp_to_branch is deprecated and unreliable: the suffix is recomputed every time the provider is configured (each plan/apply/refresh phase), so the resolved branch name is not stable and is never persisted in state. Use a git_repository_branch resource with append_timestamp = true and reference its computed_name from git_repository_file.branch instead.",
+				Optional:           true,
+			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
 					"username": schema.StringAttribute{
@@ -207,9 +212,18 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 }
 
+func configuredBranchName(branch string, appendTimestamp bool, now func() time.Time) string {
+	if !appendTimestamp || branch == "" {
+		return branch
+	}
+
+	return branch + "-" + now().Format("20060102150405")
+}
+
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewRepositoryFileResource,
+		NewRepositoryBranchResource,
 	}
 }
 
