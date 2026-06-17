@@ -36,6 +36,7 @@ type GitProviderModel struct {
 	Url                     types.String `tfsdk:"url"`
 	Branch                  types.String `tfsdk:"branch"`
 	BaseBranch              types.String `tfsdk:"base_branch"`
+	BranchSuffix            types.String `tfsdk:"branch_suffix"`
 	AppendTimestampToBranch types.Bool   `tfsdk:"append_timestamp_to_branch"`
 	Ssh                     *Ssh         `tfsdk:"ssh"`
 	Http                    *Http        `tfsdk:"http"`
@@ -90,6 +91,22 @@ func resolveBranch(branch string, appendTimestamp bool, now time.Time) string {
 	return branch
 }
 
+// resolveConfiguredBranch computes the branch the provider should use for
+// commits, taking an optional caller-supplied suffix into account. When suffix
+// is non-empty and a branch name is configured, it is appended as
+// "<branch>-<suffix>" and takes precedence over append_timestamp_to_branch.
+// Because the suffix is supplied from outside the provider (for example a
+// pipeline-generated value passed once per run via a variable), the resulting
+// branch name is identical across every plan/apply/refresh phase of a run,
+// avoiding the instability of append_timestamp_to_branch. When no suffix is
+// given the legacy append_timestamp_to_branch behaviour is preserved.
+func resolveConfiguredBranch(branch, suffix string, appendTimestamp bool, now time.Time) string {
+	if branch != "" && suffix != "" {
+		return fmt.Sprintf("%s-%s", branch, suffix)
+	}
+	return resolveBranch(branch, appendTimestamp, now)
+}
+
 var _ provider.Provider = &GitProvider{}
 
 type GitProvider struct {
@@ -113,6 +130,10 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 			},
 			"base_branch": schema.StringAttribute{
 				Description: "Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to \"main\".",
+				Optional:    true,
+			},
+			"branch_suffix": schema.StringAttribute{
+				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". Unlike append_timestamp_to_branch, this value is supplied by you (for example a pipeline-generated timestamp or run id passed once via a variable), so the resulting branch name is identical across every plan/apply/refresh phase of a run. Takes precedence over append_timestamp_to_branch.",
 				Optional:    true,
 			},
 			"append_timestamp_to_branch": schema.BoolAttribute{
@@ -194,17 +215,16 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	}
 
 	appendTimestamp := data.AppendTimestampToBranch.ValueBool()
-	branch := resolveBranch(data.Branch.ValueString(), appendTimestamp, time.Now())
+	branch := resolveConfiguredBranch(data.Branch.ValueString(), data.BranchSuffix.ValueString(), appendTimestamp, time.Now())
 
 	resp.ResourceData = &ProviderResourceData{
-		url:              data.Url.ValueString(),
-		branch:           branch,
-		base_branch:      data.BaseBranch.ValueString(),
-		append_timestamp: appendTimestamp,
-		ssh:              data.Ssh,
-		http:             data.Http,
-		commits:          newCommits(&data),
-		ignore_updates:   data.IgnoreUpdates.ValueBool(),
+		url:            data.Url.ValueString(),
+		branch:         branch,
+		base_branch:    data.BaseBranch.ValueString(),
+		ssh:            data.Ssh,
+		http:           data.Http,
+		commits:        newCommits(&data),
+		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
 }
 
