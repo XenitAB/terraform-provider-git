@@ -6,7 +6,7 @@ require (
 	github.com/fluxcd/flux2 v0.41.2
 	github.com/fluxcd/pkg/git v0.37.0
 	github.com/fluxcd/pkg/git/gogit v0.26.0
-	github.com/fluxcd/pkg/ssh v0.17.0
+	github.com/fluxcd/pkg/ssh v0.22.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/hashicorp/terraform-plugin-docs v0.21.0
 	github.com/hashicorp/terraform-plugin-framework v1.16.1
@@ -42,12 +42,10 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fluxcd/pkg/auth v0.9.0 // indirect
 	github.com/fluxcd/pkg/cache v0.12.0 // indirect
-	github.com/fluxcd/pkg/ssh v0.22.0 // indirect
 	github.com/fluxcd/pkg/version v0.6.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.6.2 // indirect
-	github.com/go-git/go-git/v5 v5.16.0 // indirect
+	github.com/go-git/go-billy/v5 v5.9.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -110,6 +108,7 @@ require (
 	github.com/yuin/goldmark-meta v1.1.0 // indirect
 	github.com/zclconf/go-cty v1.16.2 // indirect
 	go.abhg.dev/goldmark/frontmatter v0.2.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
 	golang.org/x/mod v0.35.0 // indirect
