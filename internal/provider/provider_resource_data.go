@@ -125,6 +125,11 @@ func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, bran
 	return nil, fmt.Errorf("%s", sb.String())
 }
 
+func (prd *ProviderResourceData) GetGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, error) {
+	client, _, err := prd.getGitClientForExistingBranch(ctx, branch)
+	return client, err
+}
+
 func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Context, branch string) (*gogit.Client, string, error) {
 	u, err := url.Parse(prd.url)
 	if err != nil {
@@ -145,7 +150,7 @@ func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Conte
 	}
 	client, err := gogit.NewClient(tmpDir, authOpts, clientOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("could not create git client: %w", err)
+		return nil, tmpDir, fmt.Errorf("could not create git client: %w", err)
 	}
 
 	// When appending a timestamp, the target branch does not exist yet, so the
@@ -167,11 +172,11 @@ func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Conte
 
 	if prd.append_timestamp && prd.branch != "" {
 		if err := client.SwitchBranch(ctx, prd.branch); err != nil {
-			return nil, fmt.Errorf("could not create branch %q: %w", prd.branch, err)
+			return nil, tmpDir, fmt.Errorf("could not create branch %q: %w", prd.branch, err)
 		}
 	}
 
-	return client, err
+	return client, tmpDir, nil
 }
 
 // detectDefaultBranch uses git ls-remote to discover the remote HEAD ref and
@@ -243,11 +248,12 @@ func gogitAuthMethod(opts *git.AuthOptions) (gogittransport.AuthMethod, error) {
 			return nil, err
 		}
 		if len(opts.KnownHosts) > 0 {
-			callback, err := fluxknownhosts.New(opts.KnownHosts)
+			callback, algorithms, err := fluxknownhosts.New(opts.KnownHosts)
 			if err != nil {
 				return nil, err
 			}
 			pk.HostKeyCallback = callback
+			pk.HostKeyAlgorithms = algorithms
 		}
 		return pk, nil
 	default:
