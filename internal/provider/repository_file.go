@@ -13,27 +13,25 @@ import (
 	"github.com/fluxcd/pkg/git"
 	"github.com/fluxcd/pkg/git/repository"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 )
 
 type RepositoryFileResourceModel struct {
 	ID               types.String   `tfsdk:"id"`
-	Branch           types.String   `tfsdk:"branch"`
 	Path             types.String   `tfsdk:"path"`
 	Content          types.String   `tfsdk:"content"`
+	Branch           types.String   `tfsdk:"branch"`
 	OverrideOnCreate types.Bool     `tfsdk:"override_on_create"`
-	AuthorName       types.String   `tfsdk:"author_name"`
-	AuthorEmail      types.String   `tfsdk:"author_email"`
-	Message          types.String   `tfsdk:"message"`
 	Timeouts         timeouts.Value `tfsdk:"timeouts"`
 }
 
@@ -42,6 +40,47 @@ var _ resource.ResourceWithImportState = &RepositoryFileResource{}
 
 func NewRepositoryFileResource() resource.Resource {
 	return &RepositoryFileResource{}
+}
+
+type useStateIfUpdatesShouldBeIgnored struct{}
+
+func (m useStateIfUpdatesShouldBeIgnored) Description(_ context.Context) string {
+	return "Once set, the value of this attribute in state will not change."
+}
+
+func (m useStateIfUpdatesShouldBeIgnored) MarkdownDescription(_ context.Context) string {
+	return "Once set, the value of this attribute in state will not change."
+}
+
+func (m useStateIfUpdatesShouldBeIgnored) PlanModifyString(ctx context.Context, req planmodifier.StringRequest, resp *planmodifier.StringResponse) {
+	// Do nothing if there is no state value.
+	if req.StateValue.IsNull() {
+		tflog.Debug(ctx, "StateValue is null", map[string]interface{}{})
+		return
+	}
+
+	// Do nothing if there is an unknown configuration value, otherwise interpolation gets messed up.
+	if req.ConfigValue.IsUnknown() {
+		tflog.Debug(ctx, "ConfigValue is null", map[string]interface{}{})
+		return
+	}
+
+	ignore, diag := req.Private.GetKey(ctx, "IgnoreUpdates")
+	resp.Diagnostics.Append(diag...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if strings.EqualFold(string(ignore), "true") {
+		if !req.ConfigValue.Equal(req.StateValue) {
+			tflog.Debug(ctx, "Using state instead of plan value.", map[string]interface{}{})
+			resp.PlanValue = req.StateValue
+		}
+	}
+}
+
+func UseStateIfUpdatesShouldBeIgnored() planmodifier.String {
+	return useStateIfUpdatesShouldBeIgnored{}
 }
 
 type RepositoryFileResource struct {
@@ -62,14 +101,6 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 					stringplanmodifier.UseStateForUnknown(),
 				},
 			},
-			"branch": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("main"),
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.RequiresReplace(),
-				},
-			},
 			"path": schema.StringAttribute{
 				Required: true,
 				PlanModifiers: []planmodifier.String{
@@ -78,25 +109,22 @@ func (r *RepositoryFileResource) Schema(ctx context.Context, req resource.Schema
 			},
 			"content": schema.StringAttribute{
 				Required: true,
+				PlanModifiers: []planmodifier.String{
+					UseStateIfUpdatesShouldBeIgnored(),
+				},
+			},
+			"branch": schema.StringAttribute{
+				Optional:    true,
+				Description: "Branch to write the file to. Defaults to the provider-level branch config or main. Reference a git_repository_branch computed_name to target a per-run branch.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"override_on_create": schema.BoolAttribute{
 				Optional:      true,
 				Computed:      true,
 				Default:       booldefault.StaticBool(false),
 				PlanModifiers: []planmodifier.Bool{},
-			},
-			"author_name": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("Terraform Provider Git"),
-			},
-			"author_email": schema.StringAttribute{
-				Optional: true,
-			},
-			"message": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				Default:  stringdefault.StaticString("Write file with Terraform Provider Git."),
 			},
 			"timeouts": timeouts.AttributesAll(ctx),
 		},
@@ -134,20 +162,23 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 	defer cancel()
 
 	commit := git.Commit{
-		Message: data.Message.ValueString(),
+		Message: r.prd.Commits(ctx).Msg(),
 		Author: git.Signature{
-			Name:  data.AuthorName.ValueString(),
-			Email: data.AuthorEmail.ValueString(),
+			Name:  r.prd.Commits(ctx).Author(),
+			Email: r.prd.Commits(ctx).Email(),
 		},
 	}
+
 	err := retry.RetryContext(ctx, createTimeout, func() *retry.RetryError {
 		files := map[string]io.Reader{
 			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
 		}
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+
+		client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		path := filepath.Join(client.Path(), data.Path.ValueString())
 		_, err = os.Stat(path)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -156,22 +187,25 @@ func (r *RepositoryFileResource) Create(ctx context.Context, req resource.Create
 		if err == nil && !data.OverrideOnCreate.ValueBool() {
 			return retry.NonRetryableError(fmt.Errorf("cannot override existing file"))
 		}
+
 		_, err = client.Commit(commit, repository.WithFiles(files))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
 		}
 		return nil
 	})
+
 	if err != nil {
 		resp.Diagnostics.AddError("Git File Create Error", err.Error())
 		return
 	}
-	data.ID = data.Path
 
+	data.ID = data.Path
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -182,6 +216,14 @@ func (r *RepositoryFileResource) Read(ctx context.Context, req resource.ReadRequ
 		return
 	}
 
+	if r.prd.IgnoreUpdates(ctx) {
+		tflog.Debug(ctx, "Provider is configured to ignore updates. The git file will not be read.", map[string]interface{}{})
+		req.Private.SetKey(ctx, "IgnoreUpdates", []byte("true"))
+		resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
+		return
+	}
+	req.Private.SetKey(ctx, "IgnoreUpdates", []byte("false"))
+
 	readTimeout, diags := data.Timeouts.Read(ctx, 10*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -190,25 +232,7 @@ func (r *RepositoryFileResource) Read(ctx context.Context, req resource.ReadRequ
 	ctx, cancel := context.WithTimeout(ctx, readTimeout)
 	defer cancel()
 
-	client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError("Git Client Error", err.Error())
-		return
-	}
-	absPath := filepath.Join(client.Path(), data.ID.ValueString())
-	b, err := os.ReadFile(absPath)
-	if err != nil && errors.Is(err, os.ErrNotExist) {
-		diags = resp.State.SetAttribute(ctx, path.Root("id"), "")
-		resp.Diagnostics.Append(diags...)
-		return
-	}
-	if err != nil {
-		resp.Diagnostics.AddError("File Read Error", err.Error())
-		return
-	}
-	data.Path = data.ID
-	data.Content = types.StringValue(string(b))
-
+	r.ReadFile(ctx, data, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &data)...)
 }
 
@@ -224,34 +248,45 @@ func (r *RepositoryFileResource) Update(ctx context.Context, req resource.Update
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
 	ctx, cancel := context.WithTimeout(ctx, updateTimeout)
 	defer cancel()
 
 	commit := git.Commit{
-		Message: data.Message.ValueString(),
+		Message: r.prd.Commits(ctx).Msg(),
 		Author: git.Signature{
-			Name:  data.AuthorName.ValueString(),
-			Email: data.AuthorEmail.ValueString(),
+			Name:  r.prd.Commits(ctx).Author(),
+			Email: r.prd.Commits(ctx).Email(),
 		},
 	}
+
 	err := retry.RetryContext(ctx, updateTimeout, func() *retry.RetryError {
-		files := map[string]io.Reader{
-			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
-		}
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+		client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
+		path := filepath.Join(client.Path(), data.Path.ValueString())
+		if _, exists := FileExists(path); !exists {
+			return retry.NonRetryableError(errors.New("File Doesn't Exist"))
+		}
+
+		files := map[string]io.Reader{
+			data.Path.ValueString(): strings.NewReader(data.Content.ValueString()),
+		}
+
 		_, err = client.Commit(commit, repository.WithFiles(files))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
 		}
 		return nil
 	})
+
 	if err != nil {
 		resp.Diagnostics.AddError("Git File Update Error", err.Error())
 		return
@@ -276,36 +311,42 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 	defer cancel()
 
 	commit := git.Commit{
-		Message: data.Message.ValueString(),
+		Message: r.prd.Commits(ctx).Msg(),
 		Author: git.Signature{
-			Name:  data.AuthorName.ValueString(),
-			Email: data.AuthorEmail.ValueString(),
+			Name:  r.prd.Commits(ctx).Author(),
+			Email: r.prd.Commits(ctx).Email(),
 		},
 	}
+
 	err := retry.RetryContext(ctx, deleteTimeout, func() *retry.RetryError {
-		client, err := r.prd.GetGitClient(ctx, data.Branch.ValueString())
+		client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		path := filepath.Join(client.Path(), data.Path.ValueString())
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			tflog.Debug(ctx, "Skipping file removal as the file does not exist", map[string]interface{}{"path": path})
+		if _, exists := FileExists(path); !exists {
+			tflog.Debug(ctx, "Skipping file removal as the file doesn't exist", map[string]interface{}{"path": path})
 			return nil
 		}
+
 		err = os.Remove(path)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		_, err = client.Commit(commit)
 		if err != nil {
 			return retry.NonRetryableError(err)
 		}
+
 		err = client.Push(ctx, repository.PushConfig{})
 		if err != nil {
 			return retry.RetryableError(err)
 		}
 		return nil
 	})
+
 	if err != nil {
 		resp.Diagnostics.AddError("Git File Remove Error", err.Error())
 		return
@@ -313,12 +354,76 @@ func (r *RepositoryFileResource) Delete(ctx context.Context, req resource.Delete
 }
 
 func (r *RepositoryFileResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
-	b, p, ok := strings.Cut(req.ID, ":")
+	branch, p, ok := strings.Cut(req.ID, ":")
 	if !ok {
 		resp.Diagnostics.AddError("Invalid ID", "Expected id to have format branch:path")
 	}
-	diags := resp.State.SetAttribute(ctx, path.Root("branch"), b)
+
+	data := &RepositoryFileResourceModel{
+		ID:               basetypes.NewStringValue(p),
+		OverrideOnCreate: basetypes.NewBoolValue(true),
+	}
+	if branch != "" {
+		data.Branch = basetypes.NewStringValue(branch)
+	}
+
+	importTimeout, diags := data.Timeouts.Read(ctx, 10*time.Minute)
 	resp.Diagnostics.Append(diags...)
-	diags = resp.State.SetAttribute(ctx, path.Root("id"), p)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, importTimeout)
+	defer cancel()
+
+	r.ReadFile(ctx, data, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	diags = resp.State.SetAttribute(ctx, path.Root("id"), data.ID.ValueString())
 	resp.Diagnostics.Append(diags...)
+	diags = resp.State.SetAttribute(ctx, path.Root("path"), data.Path.ValueString())
+	resp.Diagnostics.Append(diags...)
+	diags = resp.State.SetAttribute(ctx, path.Root("content"), data.Content.ValueString())
+	resp.Diagnostics.Append(diags...)
+	if branch != "" {
+		diags = resp.State.SetAttribute(ctx, path.Root("branch"), branch)
+		resp.Diagnostics.Append(diags...)
+	}
+	diags = resp.State.SetAttribute(ctx, path.Root("override_on_create"), data.OverrideOnCreate.ValueBool())
+	resp.Diagnostics.Append(diags...)
+}
+
+func (r *RepositoryFileResource) ReadFile(ctx context.Context, data *RepositoryFileResourceModel, diags *diag.Diagnostics) {
+	client, err := r.prd.GetGitClientForBranch(ctx, r.prd.ResolveBranch(data.Branch.ValueString()))
+	if err != nil {
+		diags.AddError("Git Client Error", err.Error())
+		return
+	}
+
+	path := filepath.Join(client.Path(), data.ID.ValueString())
+	if err, exists := FileExists(path); !exists {
+		diags.AddError("File Doesn't Exist", err.Error())
+		return
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		diags.AddError("Error Reading File", err.Error())
+		return
+	}
+
+	data.Path = data.ID
+	data.Content = types.StringValue(string(b))
+}
+
+func FileExists(path string) (error, bool) {
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return err, false
+	}
+	if info.IsDir() {
+		return errors.New("file is a directory"), false
+	}
+	return nil, true
 }

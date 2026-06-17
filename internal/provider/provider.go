@@ -2,12 +2,15 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 )
 
 type Ssh struct {
@@ -23,10 +26,68 @@ type Http struct {
 	CertificateAuthority types.String `tfsdk:"certificate_authority"`
 }
 
+type Commits struct {
+	AuthorName  types.String `tfsdk:"author_name"`
+	AuthorEmail types.String `tfsdk:"author_email"`
+	Message     types.String `tfsdk:"message"`
+}
+
 type GitProviderModel struct {
-	Url  types.String `tfsdk:"url"`
-	Ssh  *Ssh         `tfsdk:"ssh"`
-	Http *Http        `tfsdk:"http"`
+	Url                     types.String `tfsdk:"url"`
+	Branch                  types.String `tfsdk:"branch"`
+	BaseBranch              types.String `tfsdk:"base_branch"`
+	AppendTimestampToBranch types.Bool   `tfsdk:"append_timestamp_to_branch"`
+	Ssh                     *Ssh         `tfsdk:"ssh"`
+	Http                    *Http        `tfsdk:"http"`
+	Commits                 *Commits     `tfsdk:"commits"`
+	IgnoreUpdates           types.Bool   `tfsdk:"ignore_updates"`
+}
+
+func (c *Commits) Author() string {
+	if c.AuthorName.ValueString() == "" {
+		return "Terraform Provider Git"
+	}
+	return c.AuthorName.ValueString()
+}
+
+func (c *Commits) Email() string {
+	return c.AuthorName.ValueString()
+}
+
+func (c *Commits) Msg() string {
+	if c.Message.ValueString() == "" {
+		return "Write file with Terraform Provider Git"
+	}
+	return c.Message.ValueString()
+}
+
+func newCommits(m *GitProviderModel) *Commits {
+	c := m.Commits
+	if c == nil {
+		c = &Commits{
+			AuthorName: basetypes.NewStringValue("Terraform Provider Git"),
+			Message:    basetypes.NewStringValue("Write file with Terraform Provider Git."),
+		}
+	}
+	return c
+}
+
+// branchTimestampSuffix returns a timestamp suffix in the format
+// YYYYMMDDHHMMSSmmm (UTC), where mmm are the milliseconds expressed with three
+// digits. It is used to make every provider run target a unique branch.
+func branchTimestampSuffix(t time.Time) string {
+	t = t.UTC()
+	return fmt.Sprintf("%s%03d", t.Format("20060102150405"), t.Nanosecond()/int(time.Millisecond))
+}
+
+// resolveBranch computes the branch the provider should use for commits. When
+// appendTimestamp is true and a branch name is configured, a unique timestamp
+// suffix is appended so that each run lands on its own branch.
+func resolveBranch(branch string, appendTimestamp bool, now time.Time) string {
+	if appendTimestamp && branch != "" {
+		return fmt.Sprintf("%s-%s", branch, branchTimestampSuffix(now))
+	}
+	return branch
 }
 
 var _ provider.Provider = &GitProvider{}
@@ -45,6 +106,23 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 		Attributes: map[string]schema.Attribute{
 			"url": schema.StringAttribute{
 				Required: true,
+			},
+			"branch": schema.StringAttribute{
+				Description: "Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.",
+				Optional:    true,
+			},
+			"base_branch": schema.StringAttribute{
+				Description: "Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to \"main\".",
+				Optional:    true,
+			},
+			"append_timestamp_to_branch": schema.BoolAttribute{
+				Description: "If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.",
+				Optional:    true,
+			},
+			"append_timestamp_to_branch": schema.BoolAttribute{
+				Description:        "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
+				DeprecationMessage: "append_timestamp_to_branch is deprecated and unreliable: the suffix is recomputed every time the provider is configured (each plan/apply/refresh phase), so the resolved branch name is not stable and is never persisted in state. Use a git_repository_branch resource with append_timestamp = true and reference its computed_name from git_repository_file.branch instead.",
+				Optional:           true,
 			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
@@ -87,6 +165,27 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				},
 				Optional: true,
 			},
+			"commits": schema.SingleNestedAttribute{
+				Attributes: map[string]schema.Attribute{
+					"author_name": schema.StringAttribute{
+						Description: "Author name for commits.",
+						Optional:    true,
+					},
+					"author_email": schema.StringAttribute{
+						Description: "Author email for commits.",
+						Optional:    true,
+					},
+					"message": schema.StringAttribute{
+						Description: "Commit message.",
+						Optional:    true,
+					},
+				},
+				Optional: true,
+			},
+			"ignore_updates": schema.BoolAttribute{
+				Optional:    true,
+				Description: "If true, any updates to resources of type git_repository_file will be ignored.",
+			},
 		},
 	}
 }
@@ -97,16 +196,34 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	appendTimestamp := data.AppendTimestampToBranch.ValueBool()
+	branch := resolveBranch(data.Branch.ValueString(), appendTimestamp, time.Now())
+
 	resp.ResourceData = &ProviderResourceData{
-		url:  data.Url.ValueString(),
-		ssh:  data.Ssh,
-		http: data.Http,
+		url:              data.Url.ValueString(),
+		branch:           branch,
+		base_branch:      data.BaseBranch.ValueString(),
+		append_timestamp: appendTimestamp,
+		ssh:              data.Ssh,
+		http:             data.Http,
+		commits:          newCommits(&data),
+		ignore_updates:   data.IgnoreUpdates.ValueBool(),
 	}
+}
+
+func configuredBranchName(branch string, appendTimestamp bool, now func() time.Time) string {
+	if !appendTimestamp || branch == "" {
+		return branch
+	}
+
+	return branch + "-" + now().Format("20060102150405")
 }
 
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewRepositoryFileResource,
+		NewRepositoryBranchResource,
 	}
 }
 
