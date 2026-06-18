@@ -95,8 +95,8 @@ func resolveBranch(branch string, appendTimestamp bool, now time.Time) string {
 // commits, taking an optional caller-supplied suffix into account. When suffix
 // is non-empty and a branch name is configured, it is appended as
 // "<branch>-<suffix>" and takes precedence over append_timestamp_to_branch.
-// Because the suffix is supplied from outside the provider (for example a
-// pipeline-generated value passed once per run via a variable), the resulting
+// Because the suffix is supplied from the configuration (for example a value
+// generated once per run by a resource persisted in state), the resulting
 // branch name is identical across every plan/apply/refresh phase of a run,
 // avoiding the instability of append_timestamp_to_branch. When no suffix is
 // given the legacy append_timestamp_to_branch behaviour is preserved.
