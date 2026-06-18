@@ -133,7 +133,7 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Optional:    true,
 			},
 			"branch_suffix": schema.StringAttribute{
-				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". Unlike append_timestamp_to_branch, this value is supplied by you (for example a pipeline-generated timestamp or run id passed once via a variable), so the resulting branch name is identical across every plan/apply/refresh phase of a run. Takes precedence over append_timestamp_to_branch.",
+				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". Unlike append_timestamp_to_branch, this value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works. Takes precedence over append_timestamp_to_branch.",
 				Optional:    true,
 			},
 			"append_timestamp_to_branch": schema.BoolAttribute{

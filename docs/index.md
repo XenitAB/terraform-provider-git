@@ -56,23 +56,43 @@ target different branch names. Use the `git_repository_branch` pattern above ins
 
 If you must keep all branch configuration inside the `provider` block (rather than
 using a `git_repository_branch` resource), supply a stable suffix via `branch_suffix`
-instead of `append_timestamp_to_branch`. The suffix is provided by you and must be
-computed **once per run** outside the provider (for example by your pipeline) and
-passed in via a variable, so that every plan/apply/refresh phase resolves to the
-exact same branch name `"<branch>-<branch_suffix>"`.
+instead of `append_timestamp_to_branch`. The suffix has to be the **same value for
+every plan/apply/refresh phase of a run**, so that they all resolve to the exact same
+branch name `"<branch>-<branch_suffix>"`.
+
+You do not need to compute the suffix in a shell variable. Instead, generate it once
+with an ordinary Terraform resource that persists its value in state, and reference
+that value from `branch_suffix`. Because the value is created once and stored in
+state, it stays identical across every phase of the run.
+
+The suffix does not have to be a date — any stable id that lets you relate the run to
+its branch works. For example, generate a random id with the `random` provider:
 
 ```hcl
-variable "branch_suffix" {
-  type        = string
-  description = "Stable per-run suffix, generated once by the pipeline."
+terraform {
+  required_providers {
+    git = {
+      source = "registry.terraform.io/xenitab/git"
+    }
+    random = {
+      source = "hashicorp/random"
+    }
+  }
+}
+
+# Generated once and persisted in state, so the value never changes on later
+# plan/apply/refresh. Use random_pet for a human-readable id instead.
+resource "random_id" "run" {
+  byte_length = 4
 }
 
 provider "git" {
   url    = "https://github.com/XenitAB/argocd-fleet-infra.git"
   branch = "hsb-tofu-git-provider"
 
-  # Stable across all phases of a run because the value is supplied from outside.
-  branch_suffix = var.branch_suffix
+  # Relates this run to its own branch. The value lives in your Terraform config
+  # and state, so no shell variable is needed and it is stable across all phases.
+  branch_suffix = random_id.run.hex
 
   http = {
     username = "git"
@@ -83,14 +103,20 @@ provider "git" {
 }
 ```
 
-Generate the suffix once in the pipeline and pass it to both `plan` and `apply` of
-the same run, for example:
+If you prefer a date-based suffix and want to keep it inside the configuration, use
+the [`time`](https://registry.terraform.io/providers/hashicorp/time/latest/docs)
+provider's `time_static` resource, whose value is also captured once and persisted in
+state:
 
-```sh
-# Compute once, reuse for every Terraform/OpenTofu phase in this run.
-export TF_VAR_branch_suffix="$(date -u +%Y%m%d%H%M%S)"   # or a CI run id / git short SHA
-tofu plan -out tfplan
-tofu apply tfplan
+```hcl
+resource "time_static" "run" {}
+
+provider "git" {
+  url           = "https://github.com/XenitAB/argocd-fleet-infra.git"
+  branch        = "hsb-tofu-git-provider"
+  branch_suffix = time_static.run.unix
+  # ...
+}
 ```
 
 Because the value is identical for every phase, the branch is created on the first
@@ -112,7 +138,7 @@ avoids the `non-fast-forward` / `couldn't find remote ref` failures caused by
 - `append_timestamp_to_branch` (Boolean) If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.
 - `base_branch` (String) Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to "main".
 - `branch` (String) Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.
-- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". Unlike append_timestamp_to_branch, this value is supplied by you (for example a pipeline-generated timestamp or run id passed once via a variable), so the resulting branch name is identical across every plan/apply/refresh phase of a run. Takes precedence over append_timestamp_to_branch.
+- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". Unlike append_timestamp_to_branch, this value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works. Takes precedence over append_timestamp_to_branch.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.
