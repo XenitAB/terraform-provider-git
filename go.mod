@@ -1,12 +1,12 @@
 module github.com/xenitab/terraform-provider-git
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/fluxcd/flux2 v0.41.2
 	github.com/fluxcd/pkg/git v0.37.0
 	github.com/fluxcd/pkg/git/gogit v0.37.0
-	github.com/fluxcd/pkg/ssh v0.22.0
+	github.com/fluxcd/pkg/ssh v0.25.0
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/hashicorp/terraform-plugin-docs v0.21.0
 	github.com/hashicorp/terraform-plugin-framework v1.16.1
