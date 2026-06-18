@@ -112,7 +112,7 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Optional:    true,
 			},
 			"branch_suffix": schema.StringAttribute{
-				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works.",
+				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example time_static for a date) and reference that value here.",
 				Optional:    true,
 			},
 			"ssh": schema.SingleNestedAttribute{

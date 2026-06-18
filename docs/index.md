@@ -58,8 +58,10 @@ with an ordinary Terraform resource that persists its value in state, and refere
 that value from `branch_suffix`. Because the value is created once and stored in
 state, it stays identical across every phase of the run.
 
-The suffix does not have to be a date — any stable id that lets you relate the run to
-its branch works. For example, generate a random id with the `random` provider:
+Use the [`time`](https://registry.terraform.io/providers/hashicorp/time/latest/docs)
+provider's `time_static` resource, whose value is captured once and persisted in
+state. Use `formatdate` to render the date as `YYYYMMDD` with no separators between
+year, month and day:
 
 ```hcl
 terraform {
@@ -67,17 +69,15 @@ terraform {
     git = {
       source = "registry.terraform.io/xenitab/git"
     }
-    random = {
-      source = "hashicorp/random"
+    time = {
+      source = "hashicorp/time"
     }
   }
 }
 
 # Generated once and persisted in state, so the value never changes on later
-# plan/apply/refresh. Use random_pet for a human-readable id instead.
-resource "random_id" "run" {
-  byte_length = 4
-}
+# plan/apply/refresh.
+resource "time_static" "run" {}
 
 provider "git" {
   url    = "https://github.com/XenitAB/argocd-fleet-infra.git"
@@ -85,7 +85,8 @@ provider "git" {
 
   # Relates this run to its own branch. The value lives in your Terraform config
   # and state, so no shell variable is needed and it is stable across all phases.
-  branch_suffix = random_id.run.hex
+  # Resolves to e.g. "hsb-tofu-git-provider-20260618".
+  branch_suffix = formatdate("YYYYMMDD", time_static.run.rfc3339)
 
   http = {
     username = "git"
@@ -93,25 +94,6 @@ provider "git" {
   }
 
   ignore_updates = true
-}
-```
-
-If you prefer a date-based suffix and want to keep it inside the configuration, use
-the [`time`](https://registry.terraform.io/providers/hashicorp/time/latest/docs)
-provider's `time_static` resource, whose value is also captured once and persisted in
-state. Use `formatdate` to render the date as `YYYYMMDD` with no separators between
-year, month and day:
-
-```hcl
-resource "time_static" "run" {}
-
-provider "git" {
-  url    = "https://github.com/XenitAB/argocd-fleet-infra.git"
-  branch = "hsb-tofu-git-provider"
-
-  # Resolves to e.g. "hsb-tofu-git-provider-20260618".
-  branch_suffix = formatdate("YYYYMMDD", time_static.run.rfc3339)
-  # ...
 }
 ```
 
@@ -132,7 +114,7 @@ avoids `non-fast-forward` / `couldn't find remote ref` failures.
 
 - `base_branch` (String) Branch to base a new branch on when the configured branch does not yet exist remotely (it is the first fallback source from which the new branch is created). Defaults to "main".
 - `branch` (String) Branchname to use for commits. When combined with branch_suffix the resulting branch is "<branch>-<branch_suffix>".
-- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works.
+- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example time_static for a date) and reference that value here.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.
