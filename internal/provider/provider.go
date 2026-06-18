@@ -125,11 +125,11 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Required: true,
 			},
 			"branch": schema.StringAttribute{
-				Description: "Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.",
+				Description: "Branchname to use for commits. When combined with branch_suffix the resulting branch is \"<branch>-<branch_suffix>\".",
 				Optional:    true,
 			},
 			"base_branch": schema.StringAttribute{
-				Description: "Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to \"main\".",
+				Description: "Branch to base a new branch on when the configured branch does not yet exist remotely (it is the first fallback source from which the new branch is created). Defaults to \"main\".",
 				Optional:    true,
 			},
 			"branch_suffix": schema.StringAttribute{

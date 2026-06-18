@@ -139,8 +139,8 @@ avoids the `non-fast-forward` / `couldn't find remote ref` failures caused by
 ### Optional
 
 - `append_timestamp_to_branch` (Boolean) If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.
-- `base_branch` (String) Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to "main".
-- `branch` (String) Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.
+- `base_branch` (String) Branch to base a new branch on when the configured branch does not yet exist remotely (it is the first fallback source from which the new branch is created). Defaults to "main".
+- `branch` (String) Branchname to use for commits. When combined with branch_suffix the resulting branch is "<branch>-<branch_suffix>".
 - `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". Unlike append_timestamp_to_branch, this value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works. Takes precedence over append_timestamp_to_branch.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
