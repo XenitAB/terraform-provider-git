@@ -106,15 +106,18 @@ provider "git" {
 If you prefer a date-based suffix and want to keep it inside the configuration, use
 the [`time`](https://registry.terraform.io/providers/hashicorp/time/latest/docs)
 provider's `time_static` resource, whose value is also captured once and persisted in
-state:
+state. Use `formatdate` to render the date as `YYYYMMDD` with no separators between
+year, month and day:
 
 ```hcl
 resource "time_static" "run" {}
 
 provider "git" {
-  url           = "https://github.com/XenitAB/argocd-fleet-infra.git"
-  branch        = "hsb-tofu-git-provider"
-  branch_suffix = time_static.run.unix
+  url    = "https://github.com/XenitAB/argocd-fleet-infra.git"
+  branch = "hsb-tofu-git-provider"
+
+  # Resolves to e.g. "hsb-tofu-git-provider-20260618".
+  branch_suffix = formatdate("YYYYMMDD", time_static.run.rfc3339)
   # ...
 }
 ```
