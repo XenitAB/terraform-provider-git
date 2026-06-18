@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
@@ -33,15 +32,14 @@ type Commits struct {
 }
 
 type GitProviderModel struct {
-	Url                     types.String `tfsdk:"url"`
-	Branch                  types.String `tfsdk:"branch"`
-	BaseBranch              types.String `tfsdk:"base_branch"`
-	BranchSuffix            types.String `tfsdk:"branch_suffix"`
-	AppendTimestampToBranch types.Bool   `tfsdk:"append_timestamp_to_branch"`
-	Ssh                     *Ssh         `tfsdk:"ssh"`
-	Http                    *Http        `tfsdk:"http"`
-	Commits                 *Commits     `tfsdk:"commits"`
-	IgnoreUpdates           types.Bool   `tfsdk:"ignore_updates"`
+	Url           types.String `tfsdk:"url"`
+	Branch        types.String `tfsdk:"branch"`
+	BaseBranch    types.String `tfsdk:"base_branch"`
+	BranchSuffix  types.String `tfsdk:"branch_suffix"`
+	Ssh           *Ssh         `tfsdk:"ssh"`
+	Http          *Http        `tfsdk:"http"`
+	Commits       *Commits     `tfsdk:"commits"`
+	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
 }
 
 func (c *Commits) Author() string {
@@ -73,38 +71,19 @@ func newCommits(m *GitProviderModel) *Commits {
 	return c
 }
 
-// branchTimestampSuffix returns a timestamp suffix in the format
-// YYYYMMDDHHMMSSmmm (UTC), where mmm are the milliseconds expressed with three
-// digits. It is used to make every provider run target a unique branch.
-func branchTimestampSuffix(t time.Time) string {
-	t = t.UTC()
-	return fmt.Sprintf("%s%03d", t.Format("20060102150405"), t.Nanosecond()/int(time.Millisecond))
-}
-
-// resolveBranch computes the branch the provider should use for commits. When
-// appendTimestamp is true and a branch name is configured, a unique timestamp
-// suffix is appended so that each run lands on its own branch.
-func resolveBranch(branch string, appendTimestamp bool, now time.Time) string {
-	if appendTimestamp && branch != "" {
-		return fmt.Sprintf("%s-%s", branch, branchTimestampSuffix(now))
-	}
-	return branch
-}
-
 // resolveConfiguredBranch computes the branch the provider should use for
 // commits, taking an optional caller-supplied suffix into account. When suffix
 // is non-empty and a branch name is configured, it is appended as
-// "<branch>-<suffix>" and takes precedence over append_timestamp_to_branch.
-// Because the suffix is supplied from the configuration (for example a value
-// generated once per run by a resource persisted in state), the resulting
-// branch name is identical across every plan/apply/refresh phase of a run,
-// avoiding the instability of append_timestamp_to_branch. When no suffix is
-// given the legacy append_timestamp_to_branch behaviour is preserved.
-func resolveConfiguredBranch(branch, suffix string, appendTimestamp bool, now time.Time) string {
+// "<branch>-<suffix>". Because the suffix is supplied from the configuration
+// (for example a value generated once per run by a resource persisted in
+// state), the resulting branch name is identical across every
+// plan/apply/refresh phase of a run. When no suffix is given the branch name is
+// used as-is.
+func resolveConfiguredBranch(branch, suffix string) string {
 	if branch != "" && suffix != "" {
 		return fmt.Sprintf("%s-%s", branch, suffix)
 	}
-	return resolveBranch(branch, appendTimestamp, now)
+	return branch
 }
 
 var _ provider.Provider = &GitProvider{}
@@ -133,13 +112,8 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Optional:    true,
 			},
 			"branch_suffix": schema.StringAttribute{
-				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". Unlike append_timestamp_to_branch, this value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works. Takes precedence over append_timestamp_to_branch.",
+				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works.",
 				Optional:    true,
-			},
-			"append_timestamp_to_branch": schema.BoolAttribute{
-				Description:        "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
-				DeprecationMessage: "append_timestamp_to_branch is deprecated and unreliable: the suffix is recomputed every time the provider is configured (each plan/apply/refresh phase), so the resolved branch name is not stable and is never persisted in state. Use a git_repository_branch resource with append_timestamp = true and reference its computed_name from git_repository_file.branch instead.",
-				Optional:           true,
 			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
@@ -214,8 +188,7 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		return
 	}
 
-	appendTimestamp := data.AppendTimestampToBranch.ValueBool()
-	branch := resolveConfiguredBranch(data.Branch.ValueString(), data.BranchSuffix.ValueString(), appendTimestamp, time.Now())
+	branch := resolveConfiguredBranch(data.Branch.ValueString(), data.BranchSuffix.ValueString())
 
 	resp.ResourceData = &ProviderResourceData{
 		url:            data.Url.ValueString(),
@@ -226,14 +199,6 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		commits:        newCommits(&data),
 		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
-}
-
-func configuredBranchName(branch string, appendTimestamp bool, now func() time.Time) string {
-	if !appendTimestamp || branch == "" {
-		return branch
-	}
-
-	return branch + "-" + now().Format("20060102150405")
 }
 
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {

@@ -46,19 +46,12 @@ time and persisted in state, the branch name is stable across all phases of a
 run; with ephemeral state (a fresh state per CI run) each run produces a new
 branch automatically.
 
-~> **Deprecated:** `append_timestamp_to_branch` is unreliable and deprecated. The
-suffix is recomputed every time the provider is configured (each plan/apply/refresh
-phase), so the resolved branch name is not stable and is never persisted in state.
-This can lead to errors such as `couldn't find remote ref` because different phases
-target different branch names. Use the `git_repository_branch` pattern above instead.
-
 ## Stable per-run branch with `branch_suffix`
 
 If you must keep all branch configuration inside the `provider` block (rather than
-using a `git_repository_branch` resource), supply a stable suffix via `branch_suffix`
-instead of `append_timestamp_to_branch`. The suffix has to be the **same value for
-every plan/apply/refresh phase of a run**, so that they all resolve to the exact same
-branch name `"<branch>-<branch_suffix>"`.
+using a `git_repository_branch` resource), supply a stable suffix via `branch_suffix`.
+The suffix has to be the **same value for every plan/apply/refresh phase of a run**,
+so that they all resolve to the exact same branch name `"<branch>-<branch_suffix>"`.
 
 You do not need to compute the suffix in a shell variable. Instead, generate it once
 with an ordinary Terraform resource that persists its value in state, and reference
@@ -124,8 +117,7 @@ provider "git" {
 
 Because the value is identical for every phase, the branch is created on the first
 write and every later operation (including destroy) targets that same branch, which
-avoids the `non-fast-forward` / `couldn't find remote ref` failures caused by
-`append_timestamp_to_branch`.
+avoids `non-fast-forward` / `couldn't find remote ref` failures.
 
 
 
@@ -138,10 +130,9 @@ avoids the `non-fast-forward` / `couldn't find remote ref` failures caused by
 
 ### Optional
 
-- `append_timestamp_to_branch` (Boolean) If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.
 - `base_branch` (String) Branch to base a new branch on when the configured branch does not yet exist remotely (it is the first fallback source from which the new branch is created). Defaults to "main".
 - `branch` (String) Branchname to use for commits. When combined with branch_suffix the resulting branch is "<branch>-<branch_suffix>".
-- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". Unlike append_timestamp_to_branch, this value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works. Takes precedence over append_timestamp_to_branch.
+- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it once inside the configuration with a resource that persists its value in state (for example random_id/random_pet, or time_static for a date) and reference that value here; it does not need to be a date, any stable id that relates the run to its branch works.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.
