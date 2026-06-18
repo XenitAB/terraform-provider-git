@@ -1,42 +1,31 @@
 package provider
 
 import (
-	"regexp"
 	"testing"
-	"time"
 )
 
-func TestBranchTimestampSuffix(t *testing.T) {
-	// 2026-06-16T13:03:00.002Z -> 20260616130300002
-	ts := time.Date(2026, time.June, 16, 13, 3, 0, 2*int(time.Millisecond), time.UTC)
-	got := branchTimestampSuffix(ts)
-	want := "20260616130300002"
-	if got != want {
-		t.Fatalf("branchTimestampSuffix() = %q, want %q", got, want)
+// TestResolveConfiguredBranch verifies that a caller-supplied suffix produces a
+// stable "<branch>-<suffix>" name and that the branch name is used as-is when no
+// suffix is given.
+func TestResolveConfiguredBranch(t *testing.T) {
+	if got := resolveConfiguredBranch("hsb-tofu-git-provider", "20260617120000"); got != "hsb-tofu-git-provider-20260617120000" {
+		t.Fatalf("with suffix = %q", got)
 	}
-	if !regexp.MustCompile(`^\d{17}$`).MatchString(got) {
-		t.Fatalf("branchTimestampSuffix() = %q, want 17 digits (YYYYMMDDHHMMSSmmm)", got)
+	if got := resolveConfiguredBranch("b", "run42"); got != "b-run42" {
+		t.Fatalf("with suffix = %q", got)
 	}
-}
-
-func TestResolveBranch(t *testing.T) {
-	now := time.Date(2026, time.June, 16, 13, 3, 0, 2*int(time.Millisecond), time.UTC)
-
-	if got := resolveBranch("cus-tofu-git-provider", true, now); got != "cus-tofu-git-provider-20260616130300002" {
-		t.Fatalf("resolveBranch with timestamp = %q", got)
+	if got := resolveConfiguredBranch("b", ""); got != "b" {
+		t.Fatalf("plain branch = %q", got)
 	}
-	if got := resolveBranch("cus-tofu-git-provider", false, now); got != "cus-tofu-git-provider" {
-		t.Fatalf("resolveBranch without timestamp = %q", got)
-	}
-	if got := resolveBranch("", true, now); got != "" {
-		t.Fatalf("resolveBranch with empty branch = %q, want empty", got)
+	if got := resolveConfiguredBranch("", "x"); got != "" {
+		t.Fatalf("empty branch should stay empty, got %q", got)
 	}
 }
 
-func TestResolveBranchUniquePerRun(t *testing.T) {
-	t1 := time.Date(2026, time.June, 16, 13, 3, 0, 1*int(time.Millisecond), time.UTC)
-	t2 := time.Date(2026, time.June, 16, 13, 3, 0, 2*int(time.Millisecond), time.UTC)
-	if resolveBranch("b", true, t1) == resolveBranch("b", true, t2) {
-		t.Fatalf("expected distinct branch names for runs that differ by milliseconds")
+func TestResolveConfiguredBranchStableAcrossPhases(t *testing.T) {
+	// A fixed, caller-supplied suffix must always yield the same branch name,
+	// independent of when it is resolved.
+	if resolveConfiguredBranch("b", "fixed") != resolveConfiguredBranch("b", "fixed") {
+		t.Fatalf("expected identical branch names with a fixed suffix")
 	}
 }

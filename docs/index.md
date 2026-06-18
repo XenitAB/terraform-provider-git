@@ -46,11 +46,74 @@ time and persisted in state, the branch name is stable across all phases of a
 run; with ephemeral state (a fresh state per CI run) each run produces a new
 branch automatically.
 
-~> **Deprecated:** `append_timestamp_to_branch` is unreliable and deprecated. The
-suffix is recomputed every time the provider is configured (each plan/apply/refresh
-phase), so the resolved branch name is not stable and is never persisted in state.
-This can lead to errors such as `couldn't find remote ref` because different phases
-target different branch names. Use the `git_repository_branch` pattern above instead.
+## Stable per-run branch with `branch_suffix`
+
+If you must keep all branch configuration inside the `provider` block (rather than
+using a `git_repository_branch` resource), supply a stable suffix via `branch_suffix`.
+The suffix has to be the **same value for every plan/apply/refresh phase of a run**,
+so that they all resolve to the exact same branch name `"<branch>-<branch_suffix>"`.
+
+You do not need to compute the suffix in a shell variable. Instead, generate it with
+an ordinary Terraform resource that persists its value in state, and reference that
+value from `branch_suffix`. Because the value is stored in state, it stays identical
+across every phase of a run.
+
+The recommended solution is the [`time`](https://registry.terraform.io/providers/hashicorp/time/latest/docs)
+provider's `time_rotating` resource with `rotation_days = 1`. Its `rfc3339` value is
+captured once and persisted in state, so it is **stable across every plan/apply/refresh
+phase within a day**, while **automatically rotating to a new value once per day** —
+producing a fresh branch each day without ever changing mid-run. Declare it in its own
+block directly above the `provider "git"` block (for example in `provider.tf`) and use
+`formatdate` to render the date as `YYYYMMDD` with no separators between year, month and
+day:
+
+```hcl
+terraform {
+  required_providers {
+    git = {
+      source = "registry.terraform.io/xenitab/git"
+    }
+    time = {
+      source = "hashicorp/time"
+    }
+  }
+}
+
+# Rotates once per day and persists its value in state, so it is stable across all
+# plan/apply/refresh phases within a day and produces a new value the next day.
+resource "time_rotating" "run" {
+  rotation_days = 1
+}
+
+provider "git" {
+  url    = "https://github.com/XenitAB/argocd-fleet-infra.git"
+  branch = "hsb-tofu-git-provider"
+
+  # Relates this run to its daily branch. The value lives in your Terraform config
+  # and state, so no shell variable is needed and it is stable across all phases.
+  # Resolves to e.g. "hsb-tofu-git-provider-20260618".
+  branch_suffix = formatdate("YYYYMMDD", time_rotating.run.rfc3339)
+
+  http = {
+    username = "git"
+    password = data.github_app_token.this.token
+  }
+
+  ignore_updates = true
+}
+```
+
+Because the value is identical for every phase within a day, the branch is created on
+the first write and every later operation (including destroy) targets that same branch,
+which avoids `non-fast-forward` / `couldn't find remote ref` failures. The next day the
+suffix rotates and a new daily branch is produced automatically.
+
+> **Note:** On the very first apply, `time_rotating.run` is created in the same run, so
+> its value is unknown during that initial plan. If you hit an "unknown branch_suffix"
+> error on a first-time run, create the resource first (for example with
+> `terraform apply -target=time_rotating.run`) so its value is persisted in state before
+> it is referenced. Subsequent runs read the known value from state and need only a
+> single plan/apply.
 
 
 
@@ -63,9 +126,9 @@ target different branch names. Use the `git_repository_branch` pattern above ins
 
 ### Optional
 
-- `append_timestamp_to_branch` (Boolean) If true, a unique suffix in the format YYYYMMDDHHMMSSmmm (UTC, mmm = milliseconds) is appended to branch and a new branch with that name is created from base_branch. This makes every provider run push to its own branch.
-- `base_branch` (String) Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to "main".
-- `branch` (String) Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.
+- `base_branch` (String) Branch to base a new branch on when the configured branch does not yet exist remotely (it is the first fallback source from which the new branch is created). Defaults to "main".
+- `branch` (String) Branchname to use for commits. When combined with branch_suffix the resulting branch is "<branch>-<branch_suffix>".
+- `branch_suffix` (String) Stable suffix appended to branch as "<branch>-<branch_suffix>". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it with a resource that persists its value in state (for example time_rotating with rotation_days = 1 for a daily branch) and reference that value here.
 - `commits` (Attributes) (see [below for nested schema](#nestedatt--commits))
 - `http` (Attributes) (see [below for nested schema](#nestedatt--http))
 - `ignore_updates` (Boolean) If true, any updates to resources of type git_repository_file will be ignored.

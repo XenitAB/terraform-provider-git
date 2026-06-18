@@ -22,14 +22,13 @@ import (
 )
 
 type ProviderResourceData struct {
-	url              string
-	branch           string
-	base_branch      string
-	append_timestamp bool
-	ssh              *Ssh
-	http             *Http
-	commits          *Commits
-	ignore_updates   bool
+	url            string
+	branch         string
+	base_branch    string
+	ssh            *Ssh
+	http           *Http
+	commits        *Commits
+	ignore_updates bool
 }
 
 func (prd *ProviderResourceData) IgnoreUpdates(ctx context.Context) bool {
@@ -73,10 +72,16 @@ func (prd *ProviderResourceData) GetGitClientForBranch(ctx context.Context, bran
 
 	os.RemoveAll(tmpDir)
 
-	// Build fallback branch list: first try the detected default branch via
-	// ls-remote, then fall back to the common defaults.
+	// Build fallback branch list: first try the explicitly configured base
+	// branch, then the detected default branch via ls-remote, then fall back to
+	// the common defaults.
 	fallbackBranches := []string{}
 	seen := map[string]bool{branch: true}
+
+	if prd.base_branch != "" && !seen[prd.base_branch] {
+		fallbackBranches = append(fallbackBranches, prd.base_branch)
+		seen[prd.base_branch] = true
+	}
 
 	detectedBranch, lsRemoteErr := prd.detectDefaultBranch()
 	if lsRemoteErr == nil && detectedBranch != "" && !seen[detectedBranch] {
@@ -153,13 +158,10 @@ func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Conte
 		return nil, tmpDir, fmt.Errorf("could not create git client: %w", err)
 	}
 
-	// When appending a timestamp, the target branch does not exist yet, so the
-	// clone is performed from the base branch and the new branch is created
-	// locally afterwards. Otherwise the configured branch is cloned directly.
-	checkoutBranch := prd.branch
-	if prd.append_timestamp {
-		checkoutBranch = prd.base_branch
-	}
+	// Clone the requested branch directly. When it does not exist on the remote
+	// the clone fails with a missing-ref error, which GetGitClientForBranch
+	// detects in order to create the branch from a fallback source.
+	checkoutBranch := branch
 	if checkoutBranch == "" {
 		checkoutBranch = "main"
 	}
@@ -168,12 +170,6 @@ func (prd *ProviderResourceData) getGitClientForExistingBranch(ctx context.Conte
 	if err != nil {
 		os.RemoveAll(tmpDir)
 		return nil, tmpDir, err
-	}
-
-	if prd.append_timestamp && prd.branch != "" {
-		if err := client.SwitchBranch(ctx, prd.branch); err != nil {
-			return nil, tmpDir, fmt.Errorf("could not create branch %q: %w", prd.branch, err)
-		}
 	}
 
 	return client, tmpDir, nil

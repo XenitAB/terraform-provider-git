@@ -3,9 +3,9 @@ package provider
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -33,14 +33,14 @@ type Commits struct {
 }
 
 type GitProviderModel struct {
-	Url                     types.String `tfsdk:"url"`
-	Branch                  types.String `tfsdk:"branch"`
-	BaseBranch              types.String `tfsdk:"base_branch"`
-	AppendTimestampToBranch types.Bool   `tfsdk:"append_timestamp_to_branch"`
-	Ssh                     *Ssh         `tfsdk:"ssh"`
-	Http                    *Http        `tfsdk:"http"`
-	Commits                 *Commits     `tfsdk:"commits"`
-	IgnoreUpdates           types.Bool   `tfsdk:"ignore_updates"`
+	Url           types.String `tfsdk:"url"`
+	Branch        types.String `tfsdk:"branch"`
+	BaseBranch    types.String `tfsdk:"base_branch"`
+	BranchSuffix  types.String `tfsdk:"branch_suffix"`
+	Ssh           *Ssh         `tfsdk:"ssh"`
+	Http          *Http        `tfsdk:"http"`
+	Commits       *Commits     `tfsdk:"commits"`
+	IgnoreUpdates types.Bool   `tfsdk:"ignore_updates"`
 }
 
 func (c *Commits) Author() string {
@@ -72,20 +72,17 @@ func newCommits(m *GitProviderModel) *Commits {
 	return c
 }
 
-// branchTimestampSuffix returns a timestamp suffix in the format
-// YYYYMMDDHHMMSSmmm (UTC), where mmm are the milliseconds expressed with three
-// digits. It is used to make every provider run target a unique branch.
-func branchTimestampSuffix(t time.Time) string {
-	t = t.UTC()
-	return fmt.Sprintf("%s%03d", t.Format("20060102150405"), t.Nanosecond()/int(time.Millisecond))
-}
-
-// resolveBranch computes the branch the provider should use for commits. When
-// appendTimestamp is true and a branch name is configured, a unique timestamp
-// suffix is appended so that each run lands on its own branch.
-func resolveBranch(branch string, appendTimestamp bool, now time.Time) string {
-	if appendTimestamp && branch != "" {
-		return fmt.Sprintf("%s-%s", branch, branchTimestampSuffix(now))
+// resolveConfiguredBranch computes the branch the provider should use for
+// commits, taking an optional caller-supplied suffix into account. When suffix
+// is non-empty and a branch name is configured, it is appended as
+// "<branch>-<suffix>". Because the suffix is supplied from the configuration
+// (for example a value generated once per run by a resource persisted in
+// state), the resulting branch name is identical across every
+// plan/apply/refresh phase of a run. When no suffix is given the branch name is
+// used as-is.
+func resolveConfiguredBranch(branch, suffix string) string {
+	if branch != "" && suffix != "" {
+		return fmt.Sprintf("%s-%s", branch, suffix)
 	}
 	return branch
 }
@@ -108,17 +105,16 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 				Required: true,
 			},
 			"branch": schema.StringAttribute{
-				Description: "Branchname to use for commits. When append_timestamp_to_branch is true this is used as the prefix of the branch that is created.",
+				Description: "Branchname to use for commits. When combined with branch_suffix the resulting branch is \"<branch>-<branch_suffix>\".",
 				Optional:    true,
 			},
 			"base_branch": schema.StringAttribute{
-				Description: "Branch to base a new branch on when append_timestamp_to_branch is true. Defaults to \"main\".",
+				Description: "Branch to base a new branch on when the configured branch does not yet exist remotely (it is the first fallback source from which the new branch is created). Defaults to \"main\".",
 				Optional:    true,
 			},
-			"append_timestamp_to_branch": schema.BoolAttribute{
-				Description:        "If true, automatically appends a -YYYYMMDDHHMMSS timestamp suffix (24-hour clock) to the branch name.",
-				DeprecationMessage: "append_timestamp_to_branch is deprecated and unreliable: the suffix is recomputed every time the provider is configured (each plan/apply/refresh phase), so the resolved branch name is not stable and is never persisted in state. Use a git_repository_branch resource with append_timestamp = true and reference its computed_name from git_repository_file.branch instead.",
-				Optional:           true,
+			"branch_suffix": schema.StringAttribute{
+				Description: "Stable suffix appended to branch as \"<branch>-<branch_suffix>\". The value is supplied by you and must be the same for every plan/apply/refresh phase of a run, so the resulting branch name is identical across all phases. Generate it with a resource that persists its value in state (for example time_rotating with rotation_days = 1 for a daily branch) and reference that value here.",
+				Optional:    true,
 			},
 			"ssh": schema.SingleNestedAttribute{
 				Attributes: map[string]schema.Attribute{
@@ -193,27 +189,42 @@ func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureReque
 		return
 	}
 
-	appendTimestamp := data.AppendTimestampToBranch.ValueBool()
-	branch := resolveBranch(data.Branch.ValueString(), appendTimestamp, time.Now())
+	// Provider configuration is evaluated during planning, where a value derived
+	// from another resource can still be unknown. Calling ValueString() on an
+	// unknown value silently yields "", which would drop the suffix (or branch)
+	// and resolve to a different branch between plan and apply. Reject unknown
+	// values explicitly so the provider fails fast with a clear message instead
+	// of silently using the wrong branch.
+	const unknownDetail = "Provider configuration is evaluated during planning, so this value must be known at plan time. First-time runs may display this error due to creation of new terraform resources thus unknown before first-run is completed; in that case create the referenced resource in a prior step (or apply with -target) so its value is persisted in state before it is used here."
+	if data.Branch.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("branch"),
+			"Unknown branch value",
+			unknownDetail,
+		)
+	}
+	if data.BranchSuffix.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("branch_suffix"),
+			"Unknown branch_suffix value",
+			unknownDetail,
+		)
+	}
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	branch := resolveConfiguredBranch(data.Branch.ValueString(), data.BranchSuffix.ValueString())
 
 	resp.ResourceData = &ProviderResourceData{
-		url:              data.Url.ValueString(),
-		branch:           branch,
-		base_branch:      data.BaseBranch.ValueString(),
-		append_timestamp: appendTimestamp,
-		ssh:              data.Ssh,
-		http:             data.Http,
-		commits:          newCommits(&data),
-		ignore_updates:   data.IgnoreUpdates.ValueBool(),
+		url:            data.Url.ValueString(),
+		branch:         branch,
+		base_branch:    data.BaseBranch.ValueString(),
+		ssh:            data.Ssh,
+		http:           data.Http,
+		commits:        newCommits(&data),
+		ignore_updates: data.IgnoreUpdates.ValueBool(),
 	}
-}
-
-func configuredBranchName(branch string, appendTimestamp bool, now func() time.Time) string {
-	if !appendTimestamp || branch == "" {
-		return branch
-	}
-
-	return branch + "-" + now().Format("20060102150405")
 }
 
 func (p *GitProvider) Resources(ctx context.Context) []func() resource.Resource {
