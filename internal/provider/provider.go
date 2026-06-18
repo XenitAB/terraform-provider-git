@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -184,6 +185,31 @@ func (p *GitProvider) Schema(ctx context.Context, req provider.SchemaRequest, re
 func (p *GitProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var data GitProviderModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &data)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Provider configuration is evaluated during planning, where a value derived
+	// from another resource can still be unknown. Calling ValueString() on an
+	// unknown value silently yields "", which would drop the suffix (or branch)
+	// and resolve to a different branch between plan and apply. Reject unknown
+	// values explicitly so the provider fails fast with a clear message instead
+	// of silently using the wrong branch.
+	const unknownDetail = "Provider configuration is evaluated during planning, so this value must be known at plan time. First-time runs may display this error due to creation of new terraform resources thus unknown before first-run is completed; in that case create the referenced resource in a prior step (or apply with -target) so its value is persisted in state before it is used here."
+	if data.Branch.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("branch"),
+			"Unknown branch value",
+			unknownDetail,
+		)
+	}
+	if data.BranchSuffix.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("branch_suffix"),
+			"Unknown branch_suffix value",
+			unknownDetail,
+		)
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
